@@ -1,0 +1,326 @@
+############################## README
+# Author: Inika Prasad
+# This is the Snakefile to be used for snakemake workflow.
+# See README.md for information on how to use.
+
+############################## RULE ALL
+# Generate (sample, resolution) tuples from config. For rule clustering
+datasets = config["datasets"].keys()
+dataset_resolution_pairs = [
+    (dataset, str(res))
+    for dataset in datasets
+    for res in config["datasets"][dataset]["resolutions2test"]
+]
+
+# Generate pairs for DGE refinement. For rule DGE_refinement
+pairs = config["DGE_refinement_pairs"]
+
+
+rule all:
+    input:
+        # Rule 01: merge samples
+        expand("../results/01_merge_samples/01_{dataset}_merged.rds", 
+                dataset=config["datasets"].keys()),
+
+        # Rule 02: initial QC
+        expand("../results/02_initial_QC/{dataset}/{dataset}_QC_metrics.xlsx", 
+                dataset=config["datasets"].keys()),
+        # Rule 03: Filtering & QC
+        expand("../results/03_Filtering/{dataset}/{dataset}_filt_QC_metrics.xlsx",
+                dataset=config["datasets"].keys()),
+        # Rule 04: Normalization & PCA
+        expand("../results/04_Normalized/{dataset}/{dataset}_normalized.rds",
+                dataset=config["datasets"].keys()),
+        # Rule 05: Integration
+        expand("../results/05_Integration/{dataset}/{dataset}_integrated.rds",
+                dataset=config["datasets"].keys()),
+        # Rule 05b: Test different number of dimensions
+        expand("../results/05b_testdiff_dimred/{dataset}/{dataset}_different_UMAPS.pdf",
+                dataset=config["datasets"].keys()),
+        # Rule 06: Dimensionality reduction & test clusterings
+        expand("../results/06_dimred_clustering/{dataset}/{dataset}_dimred.rds",
+                dataset=config["datasets"].keys()),
+
+        # Rule 07: Cluster markers for chosen clustering
+        expand("../results/07_clustermarkers/{dataset}/{dataset}_{resolution}_markers.xlsx",
+               zip,
+               dataset=[s for s, r in dataset_resolution_pairs],
+               resolution=[r for s, r in dataset_resolution_pairs]),
+
+        # Rule DGE
+        expand("../results/08_DGE/{unique_code}/{unique_code}_DGE_summary.txt", 
+                unique_code=config["DGE_params"].keys()),
+
+        # Rule refine DEG
+        expand("../results/08c_refinedDEGS/{combo_code}_refined.xlsx",
+                combo_code=pairs.keys()
+                )
+
+################################# INDIVIDUAL RULES
+
+# Rule 01: Merge samples into ine Seurat object
+rule merge_samples:
+    input:
+        metadata = lambda wc: config["datasets"][wc.dataset]["metadata"]
+    output:
+        rds = "../results/01_merge_samples/01_{dataset}_merged.rds",
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/01_merge_samples/01_{dataset}_merged.log"
+    script:
+        "workflow/01_merge_samples.R"
+
+
+# Rule 02: Do initial QC of nFeatures and nCounts
+rule initalQC:
+    input:
+        input_rds = "../results/01_merge_samples/01_{dataset}_merged.rds"
+    output:
+        plot1 = "../results/02_initial_QC/{dataset}/{dataset}_nFeat_nCount_bysample.png",
+        plot1_1 = "../results/02_initial_QC/{dataset}/{dataset}_nFeat_nCount_bycondition.png",
+        plot2 = "../results/02_initial_QC/{dataset}/{dataset}_nFeat_vs_nCount.png",
+        plot3 = "../results/02_initial_QC/{dataset}/{dataset}_spatial_nFeature_nCount.pdf",
+        plot4 = "../results/02_initial_QC/{dataset}/{dataset}_spots_per_gene.png",
+        table = "../results/02_initial_QC/{dataset}/{dataset}_QC_metrics.xlsx",
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/02_initial_QC/{dataset}_initial_QC.log"
+    script:
+        "workflow/02_initial_QC.R"
+
+# Rule 03: Filter cells & genes based on nFeatures, nCounts
+rule filteringQC:
+    input:
+        input_rds = "../results/01_merge_samples/01_{dataset}_merged.rds"
+    params:
+        nFeature_threshold = config["nFeature_threshold"],
+        nCount_threshold = config["nCount_threshold"],
+        min_cells = config["min_cells"],
+        nsections = lambda wc: config["datasets"][wc.dataset]["nsections"]
+    output:
+        plot0 = "../results/03_Filtering/{dataset}/{dataset}_nFeat_nCount_bycondition.png",
+        plot0_1 = "../results/03_Filtering/{dataset}/{dataset}_nFeat_nCount_bybatch.png",
+        plot1 = "../results/03_Filtering/{dataset}/{dataset}_filt_nFeat_nCount.png",
+        plot2 = "../results/03_Filtering/{dataset}/{dataset}_filt_nFeat_vs_nCount.png",
+        plot3 = "../results/03_Filtering/{dataset}/{dataset}_filt_predominant_genes_per_cell.png",
+        table = "../results/03_Filtering/{dataset}/{dataset}_filt_QC_metrics.xlsx",
+        rds = "../results/03_Filtering/{dataset}/{dataset}_filtered.rds"
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/03_Filtering/{dataset}_filtered_QC.log"
+    script:
+        "workflow/03_Filtering_QC.R"
+
+# Rule 03b: Split the Seurat v5 layers based on the covariate we want to integrate over
+rule splitlayers:
+    input:
+        input_rds = "../results/03_Filtering/{dataset}/{dataset}_filtered.rds"
+    params:
+        split_variable = lambda wc: config["datasets"][wc.dataset]["split_variable"]
+    output:
+        rds = "../results/03b_splitobject/{dataset}/{dataset}_splitobject.rds"
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/03b_splitobject/{dataset}_splitobject.log"
+    script:
+        "workflow/03b_splitobject.R"
+
+
+# Rule 04: Normalization and PCA
+rule normalize:
+    input:
+        # input_rds = "../results/03_Filtering/{dataset}/{dataset}_filtered.rds"
+        input_rds = "../results/03b_splitobject/{dataset}/{dataset}_splitobject.rds"
+    params:
+        ndims2check = lambda wc: config["datasets"][wc.dataset]["ndims2check"],
+        reduction = lambda wc: config["datasets"][wc.dataset]["reduction"],
+        variables2regress = lambda wc: config["datasets"][wc.dataset]["variables2regress"]
+    output:
+        plot0 = "../results/04_Normalized/{dataset}/{dataset}_variable_features.png",
+        plot1 = "../results/04_Normalized/{dataset}/{dataset}_dimplot_PCA.png",
+        plot2 = "../results/04_Normalized/{dataset}/{dataset}_PCA_nFeat_nCount.png",
+        plot3 = "../results/04_Normalized/{dataset}/{dataset}_elbowplot_cumu.png",
+        plot4 = "../results/04_Normalized/{dataset}/{dataset}_elbowplot.png",
+        plot5 = "../results/04_Normalized/{dataset}/{dataset}_PCheatmaps.pdf",
+        plot6 = "../results/04_Normalized/{dataset}/{dataset}_VizDimLoadings.pdf",
+        output_rds = "../results/04_Normalized/{dataset}/{dataset}_normalized.rds"
+
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/04_Normalized/{dataset}_Normalized.log"
+    script:
+        "workflow/04_Normalization_PCA.R"
+
+# Rule 05: Integration
+rule integrate:
+    input:
+        input_rds = "../results/04_Normalized/{dataset}/{dataset}_normalized.rds"
+    output:
+        output_rds = "../results/05_Integration/{dataset}/{dataset}_integrated.rds",
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/05_Integration/{dataset}_integrated.log"
+    script:
+        "workflow/05_integration.R"
+
+
+# Rule : Convert NCBI LOC identifiers to human-readable identifiers
+rule LOCgenenames:
+    input:
+        rds = "../results/05_Integration/{dataset}/{dataset}_integrated.rds"
+    output:
+        rds = "../results/locholder/{dataset}/{dataset}_locholder.rds"
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/convertLOCgenenames/{dataset}_convertLOCgenenames.log"
+    script:
+        "workflow/convertLOCgenenames.R"
+
+# Rule 05b: test different dimensionality reductions
+rule testdiff_dimreds:
+    input:
+        input_rds = "../results/locholder/{dataset}/{dataset}_locholder.rds"
+    params:
+        ndims = 20,
+        reduction2test = lambda wc: config["datasets"][wc.dataset]["reduction2test"]
+    output:
+        txt1 = "../results/05b_testdiff_dimred/{dataset}/{dataset}_record_ndims_red.txt",
+        plot1 = "../results/05b_testdiff_dimred/{dataset}/{dataset}_different_UMAPS.pdf",
+        plot4 = "../results/05b_testdiff_dimred/{dataset}/{dataset}_UMAP_nCount_nFeature.pdf",
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/05b_testdiff_dimred/{dataset}_dimred_clustering.log"
+    script:
+        "workflow/05b_testdiff_DimReduction.R"
+
+
+# Rule 06: Try clustering resolutions
+rule dimred_clustering:
+    input:
+        input_rds = "../results/locholder/{dataset}/{dataset}_locholder.rds"
+    params:
+        ndims = lambda wc: config["datasets"][wc.dataset]["ndims"],
+        RunUMAP_input = lambda wc: config["datasets"][wc.dataset]["RunUMAP_input"],
+        RunUMAP_output = lambda wc: config["datasets"][wc.dataset]["RunUMAP_output"],
+        cluster_prefix = lambda wc: config["datasets"][wc.dataset]["cluster_prefix"],
+        knownmarker_file = "../identifiers/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+    output:
+        txt = "../results/06_dimred_clustering/{dataset}/{dataset}_record_ndims_red.txt",
+        plot0 = "../results/06_dimred_clustering/{dataset}/{dataset}_feature_UMAPs.pdf",
+        plot1_1 = "../results/06_dimred_clustering/{dataset}/{dataset}_clustering_UMAPs.pdf",
+        plot1_2 = "../results/06_dimred_clustering/{dataset}/{dataset}_clustering_spatial.pdf",
+        plot2_1 = "../results/06_dimred_clustering/{dataset}/{dataset}_UMAP_bysample.png",
+        plot2_2 = "../results/06_dimred_clustering/{dataset}/{dataset}_UMAP_bybatch.png",
+        plot2_3 = "../results/06_dimred_clustering/{dataset}/{dataset}_UMAP_bycondition.png",
+        plot3 = "../results/06_dimred_clustering/{dataset}/{dataset}_resolutions_clusters.png",
+        plot4 = "../results/06_dimred_clustering/{dataset}/{dataset}_clustree.pdf",
+        output_table = "../results/06_dimred_clustering/{dataset}/{dataset}_resolutions_clusters.xlsx",
+        output_rds = "../results/06_dimred_clustering/{dataset}/{dataset}_dimred.rds"
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/06_dimred_clustering/{dataset}_dimred_clustering.log"
+    script:
+        "workflow/06_dimreduction_clusterings.R"
+
+# Rule 07: Get cluster markers for some clustering resolutions
+rule clustering:
+    input:
+        rds = "../results/06_dimred_clustering/{dataset}/{dataset}_dimred.rds"
+    output:
+        plot0 = "../results/07_clustermarkers/{dataset}/{dataset}_{resolution}_spatialplots.pdf",
+        plot1 = "../results/07_clustermarkers/{dataset}/{dataset}_{resolution}_UMAP.png",
+        plot2 = "../results/07_clustermarkers/{dataset}/{dataset}_{resolution}_markerdotplot.png",
+        plot3 = "../results/07_clustermarkers/{dataset}/{dataset}_{resolution}_UMAP_bycondition.png",
+        table = "../results/07_clustermarkers/{dataset}/{dataset}_{resolution}_markers.xlsx"
+    params:
+        resolution = lambda wc: wc.resolution
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/07_clustermarkers/{dataset}_{resolution}_clustermarkers.log"
+    script:
+        "workflow/07_clustermarkers.R"
+
+
+# rule DGE:
+#     input:
+#         rds = lambda wc: config["DGE_params"][wc.unique_code]["input_rds"]
+#     output:
+#         table1 = "../results/08_DGE/{unique_code}_DGE_results.xlsx",
+#         plot1 = "../results/08_DGE/{unique_code}_DGE_results.pdf",
+#         plot2 = "../results/08_DGE/{unique_code}_DEG_expression_clusters.pdf",
+#     params:
+#         unique_code = lambda wc: wc.unique_code,
+#         clustering = lambda wc: config["DGE_params"][wc.unique_code]["clustering"],
+#         reduction = lambda wc: config["DGE_params"][wc.unique_code]["reduction"],
+#         tst = lambda wc: config["DGE_params"][wc.unique_code]["tst"],
+#         ref = lambda wc: config["DGE_params"][wc.unique_code]["ref"],
+#         grp = lambda wc: config["DGE_params"][wc.unique_code]["grp"],
+#         ds = lambda wc: config["DGE_params"][wc.unique_code]["ds"],
+#         covariates = lambda wc: config["DGE_params"][wc.unique_code]["covariates"],
+#         test_use = lambda wc: config["DGE_params"][wc.unique_code]["test_use"],
+#         assay = lambda wc: config["DGE_params"][wc.unique_code]["assay"]
+#     conda:
+#         "envs/spatial.yaml"
+#     log:
+#         "logs/DGE/{unique_code}.log"
+#     script:
+#         "workflow/08_DGE.R"
+
+rule DGE:
+    input:
+        rds = lambda wc: config["DGE_params"][wc.unique_code]["input_rds"]
+    output:
+        outfile = "../results/08_DGE/{unique_code}/{unique_code}_DGE_summary.txt",
+        outplot = "../results/08_DGE/{unique_code}/{unique_code}_DGE_inputobject.png",
+        outres = "../results/08_DGE/{unique_code}/{unique_code}_DGE_results.xlsx"
+    resources:
+        mem_mb = 10000
+    params:
+        unique_code = lambda wc: wc.unique_code,
+        clustering = lambda wc: config["DGE_params"][wc.unique_code]["clustering"],
+        reduction = lambda wc: config["DGE_params"][wc.unique_code]["reduction"],
+        tst = lambda wc: config["DGE_params"][wc.unique_code]["tst"],
+        ref = lambda wc: config["DGE_params"][wc.unique_code]["ref"],
+        grp = lambda wc: config["DGE_params"][wc.unique_code]["grp"],
+        tst_grp = lambda wc: config["DGE_params"][wc.unique_code]["tst_grp"],
+        ref_grp = lambda wc: config["DGE_params"][wc.unique_code]["ref_grp"],
+        grping = lambda wc: config["DGE_params"][wc.unique_code]["grping"],
+        clusterwise = lambda wc: config["DGE_params"][wc.unique_code]["clusterwise"],
+        ds = lambda wc: config["DGE_params"][wc.unique_code]["ds"],
+        covariates = lambda wc: config["DGE_params"][wc.unique_code]["covariates"],
+        test_use = lambda wc: config["DGE_params"][wc.unique_code]["test_use"],
+        assay = lambda wc: config["DGE_params"][wc.unique_code]["assay"]
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/DGE/{unique_code}.log"
+    script:
+        "workflow/13_DGE.R"
+
+# Refine DEG lists by removing genes that changed between batch 1 veh and batch 2 veh
+rule DGE_refinement:
+    input: 
+        vehccpe = lambda wildcards: f"../results/08_DGE/{pairs[wildcards.combo_code][0]}/{pairs[wildcards.combo_code][0]}_DGE_results.xlsx",
+        veh1veh2 = lambda wildcards: f"../results/08_DGE/{pairs[wildcards.combo_code][1]}/{pairs[wildcards.combo_code][1]}_DGE_results.xlsx"
+    params:
+        code1 = lambda wildcards: pairs[wildcards.combo_code][0],
+        code2 = lambda wildcards: pairs[wildcards.combo_code][1]
+    output:
+        refdegs = "../results/08c_refinedDEGS/{combo_code}_refined.xlsx"
+    conda:
+        "envs/spatial.yaml"
+    log:
+        "logs/08c_refinedDEGS/{combo_code}.log"
+    script:
+        "workflow/08c_refineDEGs_enmasse.R"

@@ -1,0 +1,119 @@
+# Aim: config file for spatial transcriptomics, 10dpci, veh vs cCpE
+# See README.md for information on how to use.
+
+datasets:
+  vehccpe:
+    metadata: "../data/metadata.xlsx"
+    nsections: 6
+    split_variable: "sample"
+    ndims2check: 30 
+    reduction: "pca"
+    reduction2test: "integrated.cca" # for testdiff_dimred
+    variables2regress: "NULL"
+    ndims: 25
+    RunUMAP_input: "integrated.cca"
+    RunUMAP_output: "umap.cca"
+    cluster_prefix: "cca"
+    resolutions2test: ["cca_resolution_1"]
+    resolution: "cca_resolution_1"
+  # naive:
+  #   metadata: "../data/metadata_naive_only.xlsx"
+  #   nsections: 1
+  #   ndims2check: 30 
+  #   reduction: "pca"
+  #   variables2regress: "NULL"
+  #   ndims: 20
+  #   RunUMAP_input: "pca"
+  #   RunUMAP_output: "umap.pca"
+  #   cluster_prefix: "pca"
+  #   resolution: "placeholder"
+  allsections:
+    metadata: "../data/metadata_w_naive.xlsx"
+    nsections: 6
+    split_variable: "animal_readable"
+    ndims2check: 30 
+    reduction: "pca"
+    reduction2test: "integrated.cca" # for testdiff_dimred
+    variables2regress: "NULL"
+    ndims: 35
+    RunUMAP_input: "integrated.cca"
+    RunUMAP_output: "umap.cca"
+    cluster_prefix: "cca"
+    resolutions2test: ["cca_resolution_1.8", "cca_resolution_1.6", "cca_resolution_1.4", "cca_resolution_0.2"]
+    resolution: "cca_resolution_placeholder"
+
+
+# Global parameters (regardless of analysis)
+nFeature_threshold: 200
+nCount_threshold: 20000
+min_cells: 3
+
+DGE_params:
+  # ZOSMA:
+  #   input_rds: "../results/06_dimred_clustering/allsections/allsections_dimred.rds"
+  #   clustering: "cca_resolution_1"
+  #   reduction: "umap.cca"
+  #   ref: "vehicle_13"
+  #   tst: "c-CpE_13"
+  #   grp: "condition_cluster"
+  #   ds: null
+  #   covariates: "animal_readable, nFeature_Spatial, nCount_Spatial"
+  #   test_use: "MAST"
+  #   assay: "Spatial"
+  # ZIBAL:
+  #   input_rds: "../results/06_dimred_clustering/allsections/allsections_dimred.rds"
+  #   clustering: "cca_resolution_1"
+  #   reduction: "umap.cca"
+  #   ref: "vehicle_1_13"
+  #   tst: "vehicle_2_13"
+  #   grp: "condition_batch_cluster"
+  #   ds: null
+  #   covariates: "animal_readable, nFeature_Spatial, nCount_Spatial"
+  #   test_use: "MAST"
+  #   assay: "Spatial"
+  # ZAVIJAVA:
+  #   input_rds: "../results/06_dimred_clustering/allsections/allsections_dimred.rds"
+  #   clustering: "cca_resolution_1_mod"
+  #   reduction: "umap.cca"
+  #   ref: "vehicle_merged_muscle"
+  #   tst: "vehicle_13"
+  #   grp: "condition_cluster"
+  #   ds: 400
+  #   covariates: "animal_readable, nFeature_Spatial, nCount_Spatial"
+  #   test_use: "MAST"
+  #   assay: "Spatial"
+  ZAURAK:
+    input_rds: "../results/06_dimred_clustering/allsections/allsections_dimred.rds"
+    clustering: "cca_resolution_1.6"
+    reduction: "umap.cca"
+    ref: null
+    tst: null
+    grp: "condition_batch_cluster"
+    ds: null
+    tst_grp: "vehicle_2"
+    ref_grp: "vehicle_1"
+    grping: "condition_batch"
+    clusterwise: "TRUE"
+    covariates: "animal_readable, nFeature_Spatial, nCount_Spatial"
+    test_use: "MAST"
+    assay: "Spatial"
+  ZANIA:
+    input_rds: "../results/06_dimred_clustering/allsections/allsections_dimred.rds"
+    clustering: "cca_resolution_1.6"
+    reduction: "umap.cca"
+    ref: null
+    tst: null
+    grp: "condition_cluster"
+    ds: null
+    tst_grp: "c-CpE"
+    ref_grp: "vehicle"
+    grping: "condition"
+    clusterwise: "TRUE"
+    covariates: "animal_readable, nFeature_Spatial, nCount_Spatial"
+    test_use: "MAST"
+    assay: "Spatial"
+
+# Rule DGE_refinement. [vehccpe, veh1veh2]
+DGE_refinement_pairs:
+    # ZOSMA_ZIBAL: ["ZOSMA", "ZIBAL"] # border muscle
+    ZANIA_ZAURAK: ["ZANIA", "ZAURAK"]
