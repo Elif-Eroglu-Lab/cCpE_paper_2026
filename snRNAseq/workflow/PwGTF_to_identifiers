@@ -1,0 +1,1208 @@
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(stringr)
+library(readxl)
+library(writexl)
+library(data.table)
+library(homologene)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+library(biomaRt)
+
+
+
+###### 1.Generate "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317.xlsx" 
+###### from "NCBI_aPleWal1.hap1.20221129_genomic.gtf"."
+
+## Load the newt ".gtf" file
+library(data.table)
+data<- fread("NCBI_aPleWal1.hap1.20221129_genomic.gtf")
+dim(data)
+View(data)
+names(data)
+# Name the first column as "V1"
+setnames(data, old = names(data)[1], new = "V1")
+# Check
+names(data)
+# Extract the rows including "description"
+selected_data <- data[, .(V1, V9)][grepl("description", V9)]
+View(selected_data)
+
+# Check the number of rows with "description" and "gene_biotype".
+selected_data1 <- data[, .(V1, V9)][grepl("description", V9)]
+dim(selected_data1)
+selected_data2 <- data[, .(V1, V9)][grepl("gene_biotype", V9)]
+dim(selected_data2)
+dim(selected_data2)
+
+data=selected_data
+library(data.table)
+library(stringr)
+# Split the column "V9" and make new columns.
+data[, `:=`(
+  gene_id = str_extract(V9, 'gene_id \"([^\"]+)\"') %>% str_remove_all('gene_id |\"'),
+  description = str_extract(V9, 'description \"([^\"]+)\"') %>% str_remove_all('description |\"'),
+  gene_biotype = str_extract(V9, 'gene_biotype \"([^\"]+)\"') %>% str_remove_all('gene_biotype |\"')
+)]
+# Check
+View(data)
+# Delete V9 column
+data[, V9 := NULL]
+# Check
+View(data)
+# Name the first column as "chromosome"
+setnames(data, old = names(data)[1], new = "chromosome")
+# Check
+names(data)
+View(data)
+library(readxl)
+# Load "Chromosomes.xlsx".
+t <- read_excel("Chromosomes.xlsx")
+View(t)
+# Match and fill in
+data$scaffold <- t$Column1[match(data$chromosome, t$Column2)]
+# Check
+View(data)
+# Rearrange the columns
+setcolorder(data, c("chromosome", "scaffold", "gene_id", "description", "gene_biotype"))
+View(data)
+
+
+### Add a new column "gene_id_dash": 
+### First, copy all the contents of the "gene_id" column to the "gene_id_dash" column, 
+### then replace all "_" with "-" in the "gene_id_dash" column.
+data[, gene_id_dash := gsub("_", "-", gene_id)]
+View(data)
+
+# Save
+library(writexl)
+write_xlsx(data, "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317.xlsx")
+
+
+
+
+
+
+
+
+
+
+###### 2. Process "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317.xlsx" 
+###### and get "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofChrProtein_Hs_Mm.xlsx
+###### using "gene_id_dash"
+###### for rows with "protein_coding" in gene_biotype and with "gene_id" not started with "LOC".
+
+
+
+### Load
+Full <- read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317.xlsx")
+View(Full)
+
+# Check duplications of names
+any(duplicated(Full$gene_id_dash))
+
+
+
+## Check the duplicated contents in column "description"，and check their "gene_biotype".
+inconsistent_descriptions <- Full %>%
+  group_by(description) %>%
+  filter(n() > 1) %>%                     
+  summarise(n_biotypes = n_distinct(gene_biotype), .groups = "drop") %>%
+  filter(n_biotypes > 1)
+View(inconsistent_descriptions)
+## To check the duplicated contents
+conflict_rows <- Full %>%
+  filter(description %in% inconsistent_descriptions$description) %>%
+  arrange(description)
+View(conflict_rows)
+
+
+
+
+
+### Check: find the rows - "protein_coding" in gene_biotype with "gene_id" not started with "LOC"
+Full_protein_chr <- Full[
+  Full$gene_biotype == "protein_coding" &  
+    !grepl("^LOC", Full$gene_id),          
+]
+View(Full_protein_chr)
+
+colnames(Full_protein_chr)
+# Check if any in "description" of Full_protein_chr started with "unch".
+Full_protein_chr[grepl("^unch", Full_protein_chr$description), ]
+Full_protein_chr[grepl("^unch", Full_protein_chr$description, ignore.case = TRUE), ]
+sum(grepl("^unch", Full_protein_chr$description, ignore.case = TRUE))
+sum(grepl("^dock", Full_protein_chr$description, ignore.case = TRUE))
+# Check if any in "description" of Full_protein_chr containing with "unch".
+Full_protein_chr[grepl("unch", Full_protein_chr$description), ]
+Full_protein_chr[grepl("unch", Full_protein_chr$description, ignore.case = TRUE), ]
+sum(grepl("unch", Full_protein_chr$description, ignore.case = TRUE))
+sum(grepl("dock", Full_protein_chr$description, ignore.case = TRUE))
+
+
+
+### Add "genename_Hs" column using the contents of "gene_id_dash".
+Full_protein_chr$genename_Hs <- Full_protein_chr$gene_id_dash
+View(Full_protein_chr)
+
+
+### Add "genename_Mm" column
+Full_protein_chr$genename_Mm <- NA
+View(Full_protein_chr)
+
+
+### For NA in "genename_Mm" in "Full_protein_chr", try to fill in "genename_Mm" using "genename_Hs"
+library(homologene)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+library(biomaRt)
+
+get_mouse_gene <- function(human_gene_symbol) {
+  
+  human_ensembl <- tryCatch({
+    mapIds(
+      org.Hs.eg.db,
+      keys      = human_gene_symbol,
+      column    = "ENSEMBL",
+      keytype   = "SYMBOL",
+      multiVals = "first"
+    )
+  }, error = function(e) {
+    
+    message("SYMBOL fails: ", e$message)
+    return(NA)
+  })
+  
+  
+  if (is.na(human_ensembl)) {
+    message("In SYMBOL did not find '", human_gene_symbol, "', try ALIAS...")
+    human_ensembl <- tryCatch({
+      mapIds(
+        org.Hs.eg.db,
+        keys      = human_gene_symbol,
+        column    = "ENSEMBL",
+        keytype   = "ALIAS",
+        multiVals = "first"
+      )
+    }, error = function(e) {
+      
+      message("In ALIAS did not find: ", e$message)
+      return(NA)
+    })
+  }
+  
+  
+  if (is.na(human_ensembl)) {
+    message("In SYMBOL and ALIAS did not find '", human_gene_symbol, "', return NA")
+    return(NA)
+  }
+  
+  
+  homologs_res <- tryCatch({
+    getHomologs(
+      human_ensembl,
+      species_from = "Homo sapiens",
+      species_to   = "Mus musculus"
+    )
+  }, error = function(e) {
+    
+    message("getHomologs returns an error: ", e$message)
+    return(data.frame())
+  })
+  
+  
+  if (nrow(homologs_res) == 1 &&
+      !is.na(homologs_res$mmusculus_homolog_ensembl_gene[1])) {
+    
+    mouse_ensembl <- homologs_res$mmusculus_homolog_ensembl_gene[1]
+    
+    mouse_symbol <- tryCatch({
+      mapIds(
+        org.Mm.eg.db,
+        keys      = as.character(mouse_ensembl),
+        column    = "SYMBOL",
+        keytype   = "ENSEMBL",
+        multiVals = "first"
+      )
+    }, error = function(e) {
+      message("Returns an error when converting to the mouse gene name: ", e$message)
+      return(NA)
+    })
+    
+    return(mouse_symbol)
+    
+  } else {
+    
+    return(NA)
+  }
+}
+
+# Test 
+get_mouse_gene("FBXW10")
+get_mouse_gene("CFAP337")
+
+
+
+###  In "Full_protein_chr", for NA in "genename_Mm", try to fill in "genename_Mm" using "genename_Hs" and avoid "unresponsive".
+
+# 设置重试和休眠参数
+max_retries <- 3       
+sleep_after_10 <- 1    
+sleep_on_error <- 2    
+
+# For each row without NA in "genename_Hs" in Full_protein_chr.
+for (i in seq_len(nrow(Full_protein_chr))) {
+  if (!is.na(Full_protein_chr$genename_Hs[i])) {
+    attempt <- 1
+    success <- FALSE
+    result <- NA
+    
+    while (attempt <= max_retries && !success) {
+      result <- tryCatch({
+        get_mouse_gene(Full_protein_chr$genename_Hs[i])
+      }, error = function(e) {
+        message("Error for ", Full_protein_chr$genename_Hs[i], ": ", e$message)
+        return("ERROR")
+      })
+      
+      if (identical(result, "ERROR")) {
+        Sys.sleep(sleep_on_error)
+        attempt <- attempt + 1
+      } else {
+        success <- TRUE
+      }
+    }
+    
+    
+    if (!success) {
+      stop("convert ", Full_protein_chr$genename_Hs[i], " fail，after ", max_retries, " times still fail，terminate.")
+    }
+    
+    Full_protein_chr$genename_Mm[i] <- result
+  }
+  
+  
+  if (i %% 10 == 0) {
+    Sys.sleep(sleep_after_10)
+  }
+}
+
+#Check the results
+View(Full_protein_chr)
+
+# Save
+write_xlsx(Full_protein_chr, "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofChrProtein_Hs_Mm.xlsx")
+
+### After generating "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofChrProtein_Hs_Mm.xlsx", 
+### further refine the file through programmatically assisted manual curation.
+
+
+
+
+
+
+
+
+
+
+###### 3.Find the rows: "protein_coding" in "gene_biotype" with "gene_id" started with "LOC"，
+###### and process to get 
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_raw.xlsx".
+###### using "description".
+
+Full_protein_Unchr <- Full[
+  Full$gene_biotype == "protein_coding" &  grepl("^LOC", Full$gene_id),          
+]
+View(Full_protein_Unchr)
+colnames(Full_protein_Unchr)
+# Only keep "description" in "Full_protein_Unchr"
+Full_protein_Unchr <- Full_protein_Unchr[, "description"]
+Full_protein_Unchr <- Full_protein_Unchr[order(Full_protein_Unchr$description), ]
+View(Full_protein_Unchr)
+# Count the number of each unique "description"
+Full_protein_Unchr_count <- Full_protein_Unchr %>%
+  count(description, name = "number") %>%
+  arrange(description)
+View(Full_protein_Unchr_count)
+# Delete all the rows started with "uncharacterized LOC" in "description" of "Full_protein_Unchr_count"
+Full_protein_Unchr_count <- Full_protein_Unchr_count[
+  !grepl("^uncharacterized LOC", Full_protein_Unchr_count$description),
+]
+View(Full_protein_Unchr_count)
+
+
+## Create a new column named "description_rmlike" in "Full_protein_Unchr_count":
+# Copy the contents of the "description" column to the "description_rmlike" column.
+# If the content starts with a letter and the first letter is not uppercase, capitalize the first letter.
+# If the content ends with "-like", remove "-like".
+
+# Create "description_rmlike"
+Full_protein_Unchr_count$description_rmlike <- Full_protein_Unchr_count$description
+# Capitalize the first letter if it starts with a lowercase letter
+Full_protein_Unchr_count$description_rmlike <- sub(
+  "^([a-z])",
+  "\\U\\1",
+  Full_protein_Unchr_count$description_rmlike,
+  perl = TRUE
+)
+# Remove "-like" if it is at the end
+Full_protein_Unchr_count$description_rmlike <- sub(
+  "-like$",
+  "",
+  Full_protein_Unchr_count$description_rmlike
+)
+View(Full_protein_Unchr_count)
+
+# Save
+write_xlsx(Full_protein_Unchr_count, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_raw.xlsx")
+
+# Check for entries ending with "like" in the "description_rmlike" column
+Full_protein_Unchr_count[
+  grepl("like$", Full_protein_Unchr_count$description_rmlike),
+]
+sum(grepl("like$", Full_protein_Unchr_count$description_rmlike))
+
+
+
+
+
+
+
+
+
+
+###### 4. For "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_raw.xlsx":
+###### give gene names of "genename_Hs" and "genename_Mm" by "description"
+###### Getting:
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique.xlsx"
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA.xlsx"
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA.xlsx"
+
+
+
+# Load
+df <- read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_raw.xlsx")
+View(df)
+
+
+
+
+
+### To fill in "genename_Hs"  (ignore letter case in the input "description").
+library(httr)
+library(jsonlite)
+
+fetch_gene_name_Hs <- function(protein_name) {
+  query_url <- paste0("https://rest.uniprot.org/uniprotkb/search?query=",
+                      URLencode(protein_name),
+                      "+AND+organism_id:9606&fields=protein_name,gene_names&format=json")
+  
+  response <- GET(query_url)
+  
+  if (status_code(response) == 200) {
+    content_data <- content(response, as = "text", encoding = "UTF-8")
+    parsed_data <- fromJSON(content_data, flatten = TRUE)
+    
+    input_lower <- tolower(protein_name)  
+    
+    for (i in seq_along(parsed_data$results$proteinDescription.recommendedName.fullName.value)) {
+      recommended_name <- parsed_data$results$proteinDescription.recommendedName.fullName.value[i]
+      
+      if (!is.na(recommended_name) && tolower(recommended_name) == input_lower) {
+        return(parsed_data$results$genes[[i]]$geneName.value[1])
+      }
+      
+      if (!is.null(parsed_data$results$proteinDescription.alternativeName)) {
+        alternative_names <- parsed_data$results$proteinDescription.alternativeName[[i]]
+        
+        if (!is.null(alternative_names)) {
+          alt_names_lower <- tolower(alternative_names$fullName.value)
+          if (input_lower %in% alt_names_lower) {
+            return(parsed_data$results$genes[[i]]$geneName.value[1])
+          }
+        }
+      }
+    }
+  }
+  return(NA)
+}
+
+# Test
+protein_input <- "LIM homeobox transcription factor 1-beta"
+gene_name <- fetch_gene_name_Hs(protein_input)
+
+cat("Protein Name:", protein_input, "\n")
+cat("Gene Name:", gene_name, "\n")
+
+
+
+### For each entry in the "description_rmlike" column, use the "fetch_gene_name_Hs" function above to 
+### find the corresponding human gene name and fill it into the "genename_Hs" column in the corresponding row; 
+### if the result is NA, enter NA.
+df$genename_Hs <- sapply(df$description_rmlike, fetch_gene_name_Hs)
+View(df)
+# Convert the "genename_Hs" column from a list to a character vector.
+df$genename_Hs <- sapply(df$genename_Hs, function(x) {
+  if (is.null(x)) return(NA_character_)
+  as.character(x)
+})
+View(df)
+# Check the number of NA 
+sum(is.na(df$genename_Hs))
+#df_na_Hs <- df[is.na(df$genename_Hs), ]
+#View(df_na_Hs)
+
+
+
+
+
+### To fill in "genename_Mm"  (ignore letter case in the input "description").
+library(httr)
+library(jsonlite)
+fetch_gene_name_Mm <- function(protein_name) {
+  
+  query_url <- paste0("https://rest.uniprot.org/uniprotkb/search?query=",
+                      URLencode(protein_name),
+                      "+AND+organism_id:10090&fields=protein_name,gene_names&format=json")
+  
+  
+  response <- GET(query_url)
+  
+  if (status_code(response) == 200) {
+    content_data <- content(response, as = "text", encoding = "UTF-8")
+    parsed_data <- fromJSON(content_data, flatten = TRUE)
+    
+    input_lower <- tolower(protein_name)  
+    
+    for (i in seq_along(parsed_data$results$proteinDescription.recommendedName.fullName.value)) {
+      recommended_name <- parsed_data$results$proteinDescription.recommendedName.fullName.value[i]
+      
+      
+      if (!is.na(recommended_name) && tolower(recommended_name) == input_lower) {
+        return(parsed_data$results$genes[[i]]$geneName.value[1])
+      }
+      
+      
+      if (!is.null(parsed_data$results$proteinDescription.alternativeName)) {
+        alternative_names <- parsed_data$results$proteinDescription.alternativeName[[i]]
+        
+        if (!is.null(alternative_names)) {
+          alt_names_lower <- tolower(alternative_names$fullName.value)
+          if (input_lower %in% alt_names_lower) {
+            return(parsed_data$results$genes[[i]]$geneName.value[1])
+          }
+        }
+      }
+    }
+  }
+  return(NA)  
+}
+
+# Test
+protein_input <- "von Willebrand factor C domain-containing protein 2-like"
+gene_name <- fetch_gene_name_Mm(protein_input)
+
+cat("Protein Name:", protein_input, "\n")
+cat("Gene Name:", gene_name, "\n")
+
+### For each entry in the "description_rmlike" column, use the "fetch_gene_name_Mm" function above to 
+### find the corresponding human gene name and fill it into the "genename_Mm" column in the corresponding row; 
+### if the result is NA, enter NA.
+df$genename_Mm <- sapply(df$description_rmlike, fetch_gene_name_Mm)
+View(df)
+# Convert the "genename_Mm" column from a list to a character vector.
+df$genename_Mm <- sapply(df$genename_Mm, function(x) {
+  if (is.null(x)) return(NA_character_)
+  as.character(x)
+})
+View(df)
+# Check the number of NA
+sum(is.na(df$genename_Mm))
+sum(is.na(df$genename_Hs))
+#df_na_Mm <- df[is.na(df$genename_Mm), ]
+#View(df_na_Mm)
+
+
+
+
+
+### Check the rows:
+### NA in either "genename_Hs" or "genename_Mm";
+### NA in both "genename_Hs" and "genename_Mm".
+df_na_atleastone <- df[is.na(df$genename_Mm) | is.na(df$genename_Hs), ]
+View(df_na_atleastone)
+df_na_bothNA <- df[is.na(df$genename_Mm) & is.na(df$genename_Hs), ]
+View(df_na_bothNA)
+
+# Save
+# description annotated
+write_xlsx(df, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique.xlsx")
+# description annotated - at least one NA in "genename_Hs" and "genename_Mm"
+write_xlsx(df_na_atleastone, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA.xlsx")
+# description annotated - both NA in "genename_Hs" and "genename_Mm"
+write_xlsx(df_na_bothNA, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA.xlsx")
+
+
+
+
+
+
+
+
+
+
+###### 5. For the rows with NA only in "genename_Hs" or only in "genename_Mm":
+###### For NA in "genename_Mm", try to fill in "genename_Mm" using "genename_Hs";
+###### For NA in "genename_Hs", try to fill in "genename_Hs" using "genename_Mm".
+###### Process file "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA.xlsx".
+
+# Load 
+df_na_atleastone <- 
+  read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA.xlsx")
+View(df_na_atleastone)
+
+# Check
+sum(!is.na(df_na_atleastone$genename_Hs))
+sum(!is.na(df_na_atleastone$genename_Mm))
+
+
+
+
+
+### For NA in "genename_Mm" in "df_na_atleastone", try to fill in "genename_Mm" using "genename_Hs"
+library(homologene)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+library(biomaRt)
+
+get_mouse_gene <- function(human_gene_symbol) {
+  
+  human_ensembl <- tryCatch({
+    mapIds(
+      org.Hs.eg.db,
+      keys      = human_gene_symbol,
+      column    = "ENSEMBL",
+      keytype   = "SYMBOL",
+      multiVals = "first"
+    )
+  }, error = function(e) {
+    
+    message("SYMBOL fails: ", e$message)
+    return(NA)
+  })
+  
+  
+  if (is.na(human_ensembl)) {
+    message("In SYMBOL did not find '", human_gene_symbol, "', try ALIAS...")
+    human_ensembl <- tryCatch({
+      mapIds(
+        org.Hs.eg.db,
+        keys      = human_gene_symbol,
+        column    = "ENSEMBL",
+        keytype   = "ALIAS",
+        multiVals = "first"
+      )
+    }, error = function(e) {
+      
+      message("In ALIAS did not find: ", e$message)
+      return(NA)
+    })
+  }
+  
+  
+  if (is.na(human_ensembl)) {
+    message("In SYMBOL and ALIAS did not find '", human_gene_symbol, "', return NA")
+    return(NA)
+  }
+  
+  
+  homologs_res <- tryCatch({
+    getHomologs(
+      human_ensembl,
+      species_from = "Homo sapiens",
+      species_to   = "Mus musculus"
+    )
+  }, error = function(e) {
+   
+    message("getHomologs returns an error: ", e$message)
+    return(data.frame())
+  })
+  
+  
+  if (nrow(homologs_res) == 1 &&
+      !is.na(homologs_res$mmusculus_homolog_ensembl_gene[1])) {
+    
+    mouse_ensembl <- homologs_res$mmusculus_homolog_ensembl_gene[1]
+   
+    mouse_symbol <- tryCatch({
+      mapIds(
+        org.Mm.eg.db,
+        keys      = as.character(mouse_ensembl),
+        column    = "SYMBOL",
+        keytype   = "ENSEMBL",
+        multiVals = "first"
+      )
+    }, error = function(e) {
+      message("Returns an error when converting to the mouse gene name: ", e$message)
+      return(NA)
+    })
+    
+    return(mouse_symbol)
+    
+  } else {
+    
+    return(NA)
+  }
+}
+
+# Test 
+get_mouse_gene("FBXW10B")
+get_mouse_gene("CFAP337")
+
+
+
+###  In "df_na_atleastone", for NA in "genename_Mm", try to fill in "genename_Mm" using "genename_Hs" and avoid "unresponsive".
+
+# 设置重试和休眠参数
+max_retries <- 3       
+sleep_after_10 <- 1    
+sleep_on_error <- 2    
+
+# For each row without NA in "genename_Hs" in df_na_atleastone.
+for (i in seq_len(nrow(df_na_atleastone))) {
+  if (!is.na(df_na_atleastone$genename_Hs[i])) {
+    attempt <- 1
+    success <- FALSE
+    result <- NA
+    
+    while (attempt <= max_retries && !success) {
+      result <- tryCatch({
+        get_mouse_gene(df_na_atleastone$genename_Hs[i])
+      }, error = function(e) {
+        message("Error for ", df_na_atleastone$genename_Hs[i], ": ", e$message)
+        return("ERROR")
+      })
+      
+      if (identical(result, "ERROR")) {
+        Sys.sleep(sleep_on_error)
+        attempt <- attempt + 1
+      } else {
+        success <- TRUE
+      }
+    }
+    
+    
+    if (!success) {
+      stop("convert ", df_na_atleastone$genename_Hs[i], " fail，after ", max_retries, " times still fail，terminate.")
+    }
+    
+    df_na_atleastone$genename_Mm[i] <- result
+  }
+  
+  
+  if (i %% 10 == 0) {
+    Sys.sleep(sleep_after_10)
+  }
+}
+
+#Check the results
+View(df_na_atleastone)
+
+
+
+
+
+### For NA in "genename_Hs" in "df_na_atleastone", try to fill in "genename_Hs" using "genename_Mm"
+library(homologene)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+library(biomaRt)
+
+get_human_gene <- function(mouse_gene_symbol) {
+  
+  mouse_ensembl <- tryCatch({
+    mapIds(
+      org.Mm.eg.db,
+      keys      = mouse_gene_symbol,
+      column    = "ENSEMBL",
+      keytype   = "SYMBOL",
+      multiVals = "first"
+    )
+  }, error = function(e) {
+    message("In SYMBOL did not find: ", e$message)
+    return(NA)
+  })
+  
+  
+  if (is.na(mouse_ensembl)) {
+    message("In SYMBOL did not find '", mouse_gene_symbol, "', try ALIAS ...")
+    mouse_ensembl <- tryCatch({
+      mapIds(
+        org.Mm.eg.db,
+        keys      = mouse_gene_symbol,
+        column    = "ENSEMBL",
+        keytype   = "ALIAS",
+        multiVals = "first"
+      )
+    }, error = function(e) {
+      message("In ALIAS did not find: ", e$message)
+      return(NA)
+    })
+  }
+  
+  
+  if (is.na(mouse_ensembl)) {
+    message("In SYMBOL and ALIAS did not find '", mouse_gene_symbol, "', return NA")
+    return(NA)
+  }
+  
+  
+  homologs_res <- tryCatch({
+    getHomologs(
+      mouse_ensembl,
+      species_from = "Mus musculus",
+      species_to   = "Homo sapiens"
+    )
+  }, error = function(e) {
+    message("getHomologs 出错: ", e$message)
+    return(data.frame())
+  })
+  
+  
+  if (nrow(homologs_res) == 1 &&
+      !is.na(homologs_res$hsapiens_homolog_ensembl_gene[1])) {
+    
+    human_ensembl <- homologs_res$hsapiens_homolog_ensembl_gene[1]
+    
+    human_symbol <- tryCatch({
+      mapIds(
+        org.Hs.eg.db,
+        keys      = as.character(human_ensembl),
+        column    = "SYMBOL",
+        keytype   = "ENSEMBL",
+        multiVals = "first"
+      )
+    }, error = function(e) {
+      message("Returns an error when converting to the human gene name: ", e$message)
+      return(NA)
+    })
+    
+    return(human_symbol)
+    
+  } else {
+    return(NA)
+  }
+}
+
+# Test 
+get_human_gene("Fbxw10")
+get_human_gene("Gfap")
+
+
+
+###  In "df_na_atleastone", for NA in "genename_Hs", try to fill in "genename_Hs" using "genename_Mm" and avoid "unresponsive".
+
+max_retries <- 3       
+sleep_after_10 <- 1    
+sleep_on_error <- 2    
+
+# For each row without NA in "genename_Mm" in df_na_atleastone.
+for (i in seq_len(nrow(df_na_atleastone))) {
+  if (!is.na(df_na_atleastone$genename_Mm[i])) {
+    attempt <- 1
+    success <- FALSE
+    result <- NA
+    
+    while (attempt <= max_retries && !success) {
+      result <- tryCatch({
+        get_human_gene(df_na_atleastone$genename_Mm[i])
+      }, error = function(e) {
+        message("Error for ", df_na_atleastone$genename_Mm[i], ": ", e$message)
+        return("ERROR")
+      })
+      
+      if (identical(result, "ERROR")) {
+        Sys.sleep(sleep_on_error)
+        attempt <- attempt + 1
+      } else {
+        success <- TRUE
+      }
+    }
+    
+    
+    if (!success) {
+      stop("convert ", df_na_atleastone$genename_Mm[i], " fail，after ", max_retries, " times still fail，terminate.")
+    }
+    
+    df_na_atleastone$genename_Hs[i] <- result
+  }
+  
+  
+  if (i %% 10 == 0) {
+    Sys.sleep(sleep_after_10)
+  }
+}
+
+df_na_atleastone_mutuconv=df_na_atleastone
+
+#Check the results
+View(df_na_atleastone_mutuconv)
+
+
+## Save
+write_xlsx(df_na_atleastone_mutuconv, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA_mutuconvHswithMm.xlsx")
+
+df_na_atleastone_mutuconv <- 
+  read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA_mutuconvHswithMm.xlsx")
+
+
+
+
+
+
+
+
+###### 6.For the rows with NA in both "genename_Hs" and "genename_Mm":
+###### Process file "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA.xlsx".
+
+# Check
+View(df_na_bothNA)
+colnames(df_na_bothNA)
+
+### Manually annotate "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA.xlsx"
+### using "description_rmlike" and fill in "genename_Hs" and "genename_Mm" if find the gene names.
+### Finally generate "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA_add.xlsx"
+
+# Check
+df_na_bothNA_add <- 
+  read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA_add.xlsx")
+View(df_na_bothNA_add)
+
+# Check the number of NA
+sum(is.na(df_na_bothNA_add$genename_Mm))
+sum(is.na(df_na_bothNA_add$genename_Hs))
+
+
+
+
+
+
+
+
+
+
+###### 7.Make "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_withAll.xlsx" using:
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique.xlsx"
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_atleastoneNA_mutuconvHswithMm.xlsx"
+###### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_bothNA_add.xlsx"
+
+View(df)
+View(df_na_atleastone_mutuconv)
+View(df_na_bothNA_add)
+
+
+### Get the rows without NA in both "genename_Hs" and "genename_Mm" from "df_na_atleastone_mutuconv".
+colnames(df_na_atleastone_mutuconv)
+df_na_atleastone_mutuconv_HsMmboth <- df_na_atleastone_mutuconv[
+  !is.na(df_na_atleastone_mutuconv$genename_Hs) &
+    !is.na(df_na_atleastone_mutuconv$genename_Mm),
+]
+
+View(df_na_atleastone_mutuconv_HsMmboth)
+
+
+### Get the rows without NA in either "genename_Hs" or "genename_Mm" from "df_na_bothNA_add".
+df_na_bothNA_add_notNA <- df_na_bothNA_add[
+  !is.na(df_na_bothNA_add$genename_Hs) |
+    !is.na(df_na_bothNA_add$genename_Mm),
+]
+
+View(df_na_bothNA_add_notNA)
+
+
+### Using "df", "df_na_atleastone_mutuconv_HsMmboth", and "df_na_bothNA_add_notNA" to get
+### "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_withAll.xlsx"
+
+df_all=df
+
+View(df_all)
+View(df_na_atleastone_mutuconv_HsMmboth)
+View(df_na_bothNA_add_notNA)
+
+
+### For each entry in the description column of "df_all", 
+### if the same name can be found in the "description" column of "df_na_atleastone_mutuconv_HsMmboth", 
+### fill the corresponding rows in the "genename_Hs" and "genename_Mm" columns of "df_all" 
+### with the contents from the corresponding rows of the "genename_Hs" and "genename_Mm" columns 
+### in "df_na_atleastone_mutuconv_HsMmboth".
+
+idx <- match(
+  df_all$description,
+  df_na_atleastone_mutuconv_HsMmboth$description
+)
+
+matched <- !is.na(idx)
+
+df_all$genename_Hs[matched] <-
+  df_na_atleastone_mutuconv_HsMmboth$genename_Hs[idx[matched]]
+
+df_all$genename_Mm[matched] <-
+  df_na_atleastone_mutuconv_HsMmboth$genename_Mm[idx[matched]]
+
+View(df_all)
+
+
+### For each entry in the description column of "df_all", 
+### if the same name can be found in the "description" column of "df_na_bothNA_add_notNA", 
+### fill the corresponding rows in the "genename_Hs" and "genename_Mm" columns of "df_all" 
+### with the contents from the corresponding rows of the "genename_Hs" and "genename_Mm" columns 
+### in "df_na_bothNA_add_notNA".
+
+idx_2 <- match(
+  df_all$description,
+  df_na_bothNA_add_notNA$description
+)
+
+matched <- !is.na(idx_2)
+
+df_all$genename_Hs[matched] <-
+  df_na_bothNA_add_notNA$genename_Hs[idx_2[matched]]
+
+df_all$genename_Mm[matched] <-
+  df_na_bothNA_add_notNA$genename_Mm[idx_2[matched]]
+
+View(df_all)
+
+## Save
+write_xlsx(df_all, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_withAll.xlsx")
+
+### After generating "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_withAll.xlsx", 
+### further refine the file through programmatically assisted manual curation.
+
+
+
+
+
+
+
+
+
+
+
+###### 8.Using "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofChrProtein_Hs_Mm.xlsx"
+###### and "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_withAll.xlsx"
+###### to edit "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317.xlsx"
+
+### Load
+Full_protein_chr=read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofChrProtein_Hs_Mm.xlsx")
+View(Full_protein_chr)
+df_all=read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_NameofProteinwithUnchrUnique_withAll.xlsx")
+View(df_all)
+
+Full_add <- read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317.xlsx")
+View(Full_add)
+
+### Add new column
+Full_add$genename_Hs <- NA_character_
+Full_add$genename_Hs_count <- NA_integer_
+Full_add$genename_Mm <- NA_character_
+Full_add$genename_Mm_count <- NA_integer_
+View(Full_add)
+colnames(Full_add)
+
+
+
+### For rows in "Full_add" where "gene_biotype" is "protein_coding" and "gene_id_dash" does not start with "LOC", 
+### match the rows based on the shared "gene_id_dash" contents and fill the "genename_Hs" and "genename_Mm" columns 
+### in "Full_add" with the corresponding contents from the "genename_Hs" and "genename_Mm" columns in "Full_protein_chr".
+
+# Select protein-coding rows whose gene_id_dash does not start with "LOC"
+idx <- Full_add$gene_biotype == "protein_coding" &
+  !grepl("^LOC", Full_add$gene_id_dash)
+
+# Match gene_id_dash between Full_add and Full_protein_chr
+m <- match(
+  Full_add$gene_id_dash[idx],
+  Full_protein_chr$gene_id_dash
+)
+
+# Fill in human and mouse gene names
+Full_add$genename_Hs[idx] <- Full_protein_chr$genename_Hs[m]
+Full_add$genename_Mm[idx] <- Full_protein_chr$genename_Mm[m]
+
+View(Full_add)
+
+
+
+### For rows in "Full_add" where both "genename_Hs" and "genename_Mm" are NA, 
+### if the value in the "description" column of "Full_add" can be found in the "description" column of "df_all", 
+### fill the corresponding rows of the "genename_Hs" and "genename_Mm" columns in "Full_add" with 
+### the contents from the corresponding rows of the "genename_Hs" and "genename_Mm" columns in "df_all".
+
+# Select rows where both genename_Hs and genename_Mm are NA
+idx <- is.na(Full_add$genename_Hs) &
+  is.na(Full_add$genename_Mm)
+
+# Match description between Full_add and df_all
+m <- match(
+  Full_add$description[idx],
+  df_all$description
+)
+
+# Only keep rows whose description can be found in df_all
+matched <- !is.na(m)
+
+# Fill in human and mouse gene names
+Full_add$genename_Hs[which(idx)[matched]] <- df_all$genename_Hs[m[matched]]
+Full_add$genename_Mm[which(idx)[matched]] <- df_all$genename_Mm[m[matched]]
+
+View(Full_add)
+
+
+### Fill in the contents of "gene_id" into the remaining "genename_Hs" or "genename_Mm" showing NA
+idx_Hs <- is.na(Full_add$genename_Hs)
+Full_add$genename_Hs[idx_Hs] <- Full_add$gene_id[idx_Hs]
+
+idx_Mm <- is.na(Full_add$genename_Mm)
+Full_add$genename_Mm[idx_Mm] <- Full_add$gene_id[idx_Mm]
+
+View(Full_add)
+
+# Check the number of NA
+sum(is.na(Full_add$genename_Mm))
+sum(is.na(Full_add$genename_Hs))
+
+
+
+### Count each "genename_Hs" or "genename_Mm"
+Full_add$genename_Hs_count <- ave(
+  Full_add$genename_Hs,
+  Full_add$genename_Hs,
+  FUN = length
+)
+Full_add$genename_Mm_count <- ave(
+  Full_add$genename_Mm,
+  Full_add$genename_Mm,
+  FUN = length
+)
+View(Full_add)
+
+## Save
+write_xlsx(Full_add, 
+           "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_HsandMm.xlsx")
+
+
+
+
+
+
+
+
+
+
+###### 9.Build "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250502_HsandMm.xlsx".
+###### With "genename_Hs_PwNameFormat" and "genename_Mm_PwNameFormat" to distinguish duplicated genes.
+
+tr2g <- read_excel("NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250317_HsandMm.xlsx")
+
+### Build "genename_Hs_PwNameFormat" and "genename_Mm_PwNameFormat"
+library(dplyr)
+library(stringr)
+tr2g <- tr2g %>%
+  mutate(genename_Hs_PwNameFormat = case_when(
+    
+    # If gene_id_dash does not start with LOC
+    !grepl("^LOC", gene_id_dash) ~ toupper(genename_Hs),
+    
+    # If gene_id_dash starts with LOC and genename_Hs also starts with LOC
+    grepl("^LOC", gene_id_dash) & grepl("^LOC", genename_Hs) ~ genename_Hs,
+    
+    # If gene_id_dash starts with LOC but genename_Hs does not start with LOC
+    grepl("^LOC", gene_id_dash) & !grepl("^LOC", genename_Hs) ~
+      paste0(toupper(genename_Hs), "-", gene_id_dash)
+  ))
+View(tr2g)
+
+tr2g <- tr2g %>%
+  mutate(genename_Mm_PwNameFormat = case_when(
+    
+    !grepl("^LOC", gene_id_dash) ~ genename_Mm,
+    
+    
+    grepl("^LOC", gene_id_dash) & grepl("^LOC", genename_Mm) ~ genename_Mm,
+    
+    
+    grepl("^LOC", gene_id_dash) & !grepl("^LOC", genename_Mm) ~ 
+      paste0(genename_Mm, "-", gene_id_dash)
+  ))
+View(tr2g)
+
+
+
+### For the "gene_id_dash" without starting of "LOC", if it has any duplicate paralog in "genename_Hs",
+### then change the content in "genename_Hs_PwNameFormat" to "gene_id_dash"-Pw
+
+dup_names <- tr2g %>%
+  count(genename_Hs) %>%
+  filter(n > 1) %>%
+  pull(genename_Hs)
+tr2g <- tr2g %>%
+  mutate(genename_Hs_PwNameFormat = if_else(
+    !grepl("^LOC", gene_id_dash) & genename_Hs %in% dup_names,
+    paste0(genename_Hs_PwNameFormat, "-Pw"),
+    genename_Hs_PwNameFormat
+  ))
+View(tr2g)
+
+dup_names <- tr2g %>%
+  count(genename_Mm) %>%
+  filter(n > 1) %>%
+  pull(genename_Mm)
+tr2g <- tr2g %>%
+  mutate(genename_Mm_PwNameFormat = if_else(
+    !grepl("^LOC", gene_id_dash) & genename_Mm %in% dup_names,
+    paste0(genename_Mm_PwNameFormat, "-Pw"),
+    genename_Mm_PwNameFormat
+  ))
+View(tr2g)
+
+#Save
+write_xlsx(tr2g, "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250502_HsandMm.xlsx")
+
+
+
+
+
+
+
+
+
+
+### After generating "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250502_HsandMm.xlsx", 
+### further refine the file through programmatically assisted manual curation, and
+### generated "NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250601_HsandMm_shared.xlsx".
+
+
+
+
+
+
+
+
+
+
+
+
+
+

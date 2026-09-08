@@ -1,0 +1,42 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base=4.4.3
+  - r-languageserver
+  - r-tidyverse
+  - r-writexl
+  - r-readr
+  - r-seurat
+  - bioconductor-mast
+  - r-remotes
+  - r-ape
+  - r-ggpointdensity
+  - r-ggnewscale
+  - r-moments
+  - r-clustree
+  - r-devtools
+  - r-hdf5r
+  - bioconductor-clusterprofiler
+  - bioconductor-org.hs.eg.db
+  - r-fastDummies
+  - r-dqrng
+  - r-curl
+  - r-igraph
+  - r-httpuv
+  - r-shiny
+  - r-leidenbase
+  - r-abind
+  - r-harmony
+  - r-metap
+# The following things are for snRNAseq_2025_env
+  - dnachun::r-cellchat
+  - r-duckdb #for CyteType annotation
+  - r-pals #high contrast color palette
+  - python-kaleido<1.0 #for plotly saving
+  - plotly
+  - r-openxlsx
+  - r-ggupset
+  - bioconda::bioconductor-deseq2
+  - bioconda::bioconductor-vsn
+  - r-rentrez

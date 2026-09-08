@@ -1,0 +1,336 @@
+########################################### README ###################################################
+# Aim: config file for samples aligned to Pw NCBI genome
+# Fixed sample mixup
+# One config file for individual samples (CellBender, Scrublet, individual sample analysis, DoubletFinder)
+
+####################################### Basic parameters ####################################
+nFeature_threshold: 200
+nCount_threshold: 50000
+min_cells: 3
+
+####################################### Dataset-specific parameters ####################################
+datasets:
+  PM_naive:
+    raw_data: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_02/P34073_101/outs/raw_feature_bc_matrix.h5
+    learning_rate_cellbender: 0.0001
+    ndims: 18
+    resolution: ["0.7"]
+    chosen_resolution: "resolution_0.7"
+
+  Early_active:
+    raw_data: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_02/P34073_102/outs/raw_feature_bc_matrix.h5
+    learning_rate_cellbender: 0.000025
+    ndims: 24
+    resolution: ["1.4"]
+    chosen_resolution: "resolution_1.4"
+
+  14dpci:
+    raw_data: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_01/P34662_101/outs/raw_feature_bc_matrix.h5
+    learning_rate_cellbender: 0.000025
+    ndims: 16
+    resolution: ["0.7"]
+    chosen_resolution: "resolution_0.7"
+
+  14dpsham:
+    raw_data: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_01/P34662_102/outs/raw_feature_bc_matrix.h5
+    learning_rate_cellbender: 0.00005
+    ndims: 20
+    resolution: ["1.4"]
+    chosen_resolution: "resolution_1.4"
+
+  10dpci_veh:
+    raw_data: ../../data/raw/DDSdownload/10dpci_tester/10dpci_DDSdelivery/files/P36258/01-SC-Analysis/E.Eroglu_25_03/P36258_101/outs/raw_feature_bc_matrix.h5
+    learning_rate_cellbender: 0.000025
+    ndims: 22
+    resolution: ["0.3"]
+    chosen_resolution: "resolution_0.3"
+
+  10dpci_cCpE:
+    raw_data: ../../data/raw/DDSdownload/10dpci_tester/10dpci_DDSdelivery/files/P36258/01-SC-Analysis/E.Eroglu_25_03/P36258_102/outs/raw_feature_bc_matrix.h5
+    learning_rate_cellbender: 0.000025
+    ndims: 21
+    resolution: ["0.3"]
+    chosen_resolution: "resolution_0.3"
+
+######################################### Combined dataset ####################################
+
+
+# Another config file for combined samples
+metadata_fields2merge: ["Doublet_Confidence", "nFeature_RNA", "nCount_RNA", "orig.ident", "scrublet_Scores", "scrublet_DropletType", "barcode"]
+ndims_integrated: "20" # Rule 11b: integrated_dimred_diff & Rule 15b: peeled_integrated_dimred_diff
+test_int_method:
+    # - "integrated.cca"
+    # - "pca" # non-integrated version
+    # - "integrated.rpca"
+    - "integrated.harmony"
+
+datasets:
+  megaminus:
+    samples: ["PM_naive", "Early_active", "14dpci", "14dpsham", "10dpci_veh"]
+    exclude_categories: ["Doublet"]
+    variables2regress: ["nCount_RNA", "nFeature_RNA", "S.Score", "G2M.Score"]
+    RunUMAP_input: "integrated.harmony"
+    ndims: 35
+    RunUMAP_output: "umap.harmony"
+    cluster_prefix: "harmony"
+    myclusters: "harmony_resolution_0.2"
+    peelouts:
+      Epi:
+        clusters2peel: ["11", "04", "12"]
+        RunUMAP_input: "integrated.harmony"
+        ndims: 10
+        RunUMAP_output: "umap_peeled.harmony"
+        cluster_prefix: "harmony_peeled"
+        myclusters: "harmony_peeled_resolution_1.6"
+      Muscle: 
+          clusters2peel: ["02", "08"]
+          RunUMAP_input: "integrated.harmony"
+          ndims: 10
+          RunUMAP_output: "umap_peeled.harmony"
+          cluster_prefix: "harmony_peeled"
+          myclusters: "harmony_peeled_resolution_0.8"
+      Stromal: 
+          clusters2peel: ["01", "09", "07", "13", "05"]
+          RunUMAP_input: "integrated.harmony"
+          ndims: 10
+          RunUMAP_output: "umap_peeled.harmony"
+          cluster_prefix: "harmony_peeled"
+          myclusters: "harmony_peeled_resolution_1.8"
+      Devo: 
+          clusters2peel: ["16"]
+          RunUMAP_input: "integrated.harmony"
+          ndims: 10
+          RunUMAP_output: "umap_peeled.harmony"
+          cluster_prefix: "harmony_peeled"
+          myclusters: "harmony_peeled_resolution_1.2"
+
+  10dpci_ctrl:
+    samples: ["10dpci_veh", "10dpci_cCpE", "14dpsham", "PM_naive"]
+    exclude_categories: ["Doublet"] 
+    variables2regress: ["nCount_RNA", "nFeature_RNA", "S.Score", "G2M.Score"]
+    RunUMAP_input: "integrated.harmony"
+    ndims: 25
+    RunUMAP_output: "umap.harmony"
+    cluster_prefix: "harmony"
+    myclusters: "harmony_resolution_0.6"
+    peelouts:
+      Epi:
+          clusters2peel: ["16", "09", "26"]
+          RunUMAP_input: "integrated.harmony"
+          ndims: 15
+          RunUMAP_output: "umap_peeled.harmony"
+          cluster_prefix: "harmony_peeled"
+          myclusters: "harmony_peeled_resolution_1"
+
+
+###########################################################################################
+# Rule DGE
+# Make sure you don't leave behind DGE comparisons that call on objects that aren't being created.
+# ELEPHANT: HORUS HAS MEGAMINUS TEMPORARILY
+DGE_params:
+#   HORUS:
+#     input_rds: "results/12_integrated_DimReduction/megaminus/DRscrub/megaminus_DRscrub_dimred.rds"
+#     clustering: "harmony_resolution_0.6"
+#     reduction: "umap.harmony"
+#     ref: "10dpci_veh_16"
+#     tst: "10dpci_cCpE_16"
+#     grp: "condition_cluster"
+#     ds: null
+#     covariates: null
+#     test_use: "MAST"
+#     assay: "RNA"
+  ALGEDImod:
+    input_rds: "results/12_integrated_DimReduction/10dpci_ctrl/DRscrub/10dpci_ctrl_DRscrub_dimred.rds"
+    clustering: "harmony_resolution_0.6"
+    reduction: "umap.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "10dpci_cCpE"
+    ref_grp: "10dpci_veh"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALGENIB:
+    input_rds: "results/12_integrated_DimReduction/10dpci_ctrl/DRscrub/10dpci_ctrl_DRscrub_dimred.rds"
+    clustering: "harmony_resolution_0.6"
+    reduction: "umap.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "10dpci_veh"
+    ref_grp: "14dpsham"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALKAID:
+    input_rds: "results/12_integrated_DimReduction/10dpci_ctrl/DRscrub/10dpci_ctrl_DRscrub_dimred.rds"
+    clustering: "harmony_resolution_0.6"
+    reduction: "umap.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "14dpsham"
+    ref_grp: "PM_naive"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALGOL:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "10dpci_cCpE"
+    ref_grp: "10dpci_veh"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALGORAB:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "10dpci_veh"
+    ref_grp: "14dpsham"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALKALUROPS:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "14dpsham"
+    ref_grp: "PM_naive"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALHENA:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "orig.ident"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "04"
+    ref_grp: "03"
+    grping: "merged_clusters"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALIFA:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "orig.ident"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "07"
+    ref_grp: "03"
+    grping: "merged_clusters"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALIOTH:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "orig.ident"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "04"
+    ref_grp: "07"
+    grping: "merged_clusters"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALKAPHRAH:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    ref: "10dpci_veh_04"
+    tst: "10dpci_veh_13"
+    grp: "condition_cluster"
+    ds: "NULL"
+    tst_grp: null
+    ref_grp: null
+    grping: "orig.ident"
+    clusterwise: "FALSE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALKES:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    tst: "10dpci_veh_04"
+    ref: "PM_naive_03"
+    grp: "condition_cluster"
+    ds: "NULL"
+    tst_grp: null
+    ref_grp: null
+    grping: "orig.ident"
+    clusterwise: "FALSE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALKIDR:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    tst: "14dpsham_04"
+    ref: "PM_naive_03"
+    grp: "condition_cluster"
+    ds: "NULL"
+    tst_grp: null
+    ref_grp: null
+    grping: "orig.ident"
+    clusterwise: "FALSE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
+  ALMAAK:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "10dpci_cCpE"
+    ref_grp: "14dpsham"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"

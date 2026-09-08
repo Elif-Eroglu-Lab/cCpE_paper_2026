@@ -1,0 +1,826 @@
+# Specify the basics
+conda: "envs/global.yaml"
+
+# Generate (sample, resolution) tuples from config
+samples = list(config["resolution"].keys())
+sample_resolution_pairs = [
+    (sample, str(res))
+    for sample in samples
+    for res in config["resolution"][sample]
+]
+
+# Define the peelouts
+HIGHLIGHT_COMBOS = [
+    (iname, fmode, cname)
+    for iname, modes in config["peelouts"].items()
+    for fmode, clusters in modes.items()
+    if isinstance(clusters, dict)
+    for cname in clusters.keys()
+]
+
+integrations = config["integrations"]
+
+
+# New list of combinations including methods
+INTEGRATION_METHODS = config["test_int_method"]
+INTEGRATION_COMBOS = [
+    (iname, fmode, cname, method)
+    for (iname, fmode, cname) in HIGHLIGHT_COMBOS
+    for method in INTEGRATION_METHODS
+]
+
+rule all:
+    input:
+        # Rule 1
+        expand("results/02_LoadData_filtered/{sample}/{sample}_unfiltQC.xlsx", sample=config["samples"].keys()),
+        expand("results/02_LoadData_filtered/{sample}/{sample}_unfilt.rds", sample=config["samples"].keys()),
+        # Rule 2b
+        expand("results/02b_LOCconverted/{sample}/{sample}_LOCdimred.rds", sample=config["samples"].keys()),
+        # Rule 3
+        expand("results/03_filtered/{sample}/{sample}_filtQC.xlsx", sample=config["samples"].keys()),
+        expand("results/03_filtered/{sample}/{sample}_filt.rds", sample=config["samples"].keys()),
+        
+        # Rule 4
+        expand("results/04_Normalized/{sample}/{sample}_variable_features.png", sample=config["samples"].keys()),
+        expand("results/04_Normalized/{sample}/{sample}_normalized.rds", sample=config["samples"].keys()),
+        
+        # Rule 4b: test different dimensionality reductions
+        expand("results/04b_diffDimReds/{sample}_different_record_ndims_red.txt", sample=config["samples"].keys()),
+        expand("results/04b_diffDimReds/{sample}_different_dimred.rds", sample=config["samples"].keys()),
+
+        # Rule 5
+        expand("results/05_DimReduction/{sample}/{sample}_clustering_UMAPs.pdf", sample=config["samples"].keys()),
+        expand("results/05_DimReduction/{sample}/{sample}_dimred.rds", sample=config["samples"].keys()),
+
+        # Rule 6
+        expand("results/06_clustering/{sample}/{sample}_{resolution}_UMAP.png",
+               zip,
+               sample=[s for s, r in sample_resolution_pairs],
+               resolution=[r for s, r in sample_resolution_pairs]),
+        expand("results/06_clustering/{sample}/{sample}_{resolution}_markers.xlsx",
+               zip,
+               sample=[s for s, r in sample_resolution_pairs],
+               resolution=[r for s, r in sample_resolution_pairs]),
+
+        # Rule 6b
+        expand("results/06_clustering/{sample}/cluster_{resolution}/{sample}_cluster{resolution}_newtGOdotplot.pdf",
+               zip,
+               sample=[s for s, r in sample_resolution_pairs],
+               resolution=[r for s, r in sample_resolution_pairs]),
+        expand("results/06_clustering/{sample}/cluster_{resolution}/{sample}_cluster{resolution}_newtGOdotplotcombo.pdf",
+               zip,
+               sample=[s for s, r in sample_resolution_pairs],
+               resolution=[r for s, r in sample_resolution_pairs]),
+        
+        # Rule 7
+        expand("results/07_doubletdetection/{sample}/{sample}_doublet_classification_umap.png", sample=config["samples"].keys()),
+        expand("results/07_doubletdetection/{sample}/{sample}_doubletsdetected.rds", sample=config["samples"].keys()),
+
+        # Rule 7b
+        expand("results/07b_doublet_comparison/{sample}/{sample}_doublet_predictions_table.png", sample=config["samples"].keys()),
+        expand("results/07b_doublet_comparison/{sample}/{sample}_info.txt", sample=config["samples"].keys()),
+        expand("results/07b_doublet_comparison/{sample}/{sample}_alldoubletsdetected.rds", sample=config["samples"].keys()),
+
+        # Rule 8
+        expand("results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}.txt", 
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}.rds", 
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}_extra_metadata.rds", 
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+
+        # Rule 9
+        expand("results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimplot_PCA.png",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_normalized.rds",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+
+        # Rule 11: integration
+        expand("results/11_integrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_integrated.rds",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+
+        # Rule 11b: test different dimensionality reductions
+        expand("results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_different_record_ndims_red.txt",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"],
+                reduction = config["test_int_method"]),
+        expand("results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_different_UMAPS.pdf",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"],
+                reduction = config["test_int_method"]),
+
+        # Rule 12: Do a dimensionality reduction
+        expand("results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_record_ndims_red.txt",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_clustering_UMAPs.pdf",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimred.rds",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+
+        # rule 12b: cluster markers for integrated
+        expand("results/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}_markers.xlsx",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}_UMAP.png",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}_markers.pdf",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+
+        # Rule 13: QC of selected clustering after integration
+        expand("results/13_integrated_clusterQC/{integration_name}/{filter_mode}/dotplot_known_markers.pdf",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        expand("results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_split_originalsample_clusters.png",
+                integration_name=config["integrations"].keys(),
+                filter_mode=config["filter_modes"]),
+        
+        # Rule 14: peelout frfr
+        expand(
+            "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP.png",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        expand(
+            "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.txt",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        expand(
+            "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.rds",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+
+        # Rule 14b: re-process
+        expand(
+            "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_pca_peelout.rds",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        
+        # Rule 15: Integrate peeled out
+        expand("results/15_integrated_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_integrated.rds",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+
+        # Rule 15b: test different dimreds for the peeled dataset
+        expand("results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_different_record_ndims_red.txt",
+            zip,
+            integration_name=[x[0] for x in INTEGRATION_COMBOS],
+            filter_mode=[x[1] for x in INTEGRATION_COMBOS],
+            cluster_name=[x[2] for x in INTEGRATION_COMBOS],
+            reduction=[x[3] for x in INTEGRATION_COMBOS]),
+        expand("results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_different_UMAPS.pdf",
+            zip,
+            integration_name=[x[0] for x in INTEGRATION_COMBOS],
+            filter_mode=[x[1] for x in INTEGRATION_COMBOS],
+            cluster_name=[x[2] for x in INTEGRATION_COMBOS],
+            reduction=[x[3] for x in INTEGRATION_COMBOS]),
+
+        # Rule 16: trying different resolutions for peeled out dataset
+        expand("results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_clustering_UMAPs.pdf",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        expand("results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dimred.rds",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+
+        # Rule 16b: clustermarkers_int_peelout. identifying markers for the clustering
+        expand("results/16b_clustermarkers_4peeledintdata/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_markers.xlsx",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        expand("results/16b_clustermarkers_4peeledintdata/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP.png",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        expand("results/16b_clustermarkers_4peeledintdata/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_markers.pdf",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        
+        # Rule 17: Clustering QC
+        expand("results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dotplot_known_markers.pdf",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+        expand("results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_split_originalsample_clusters.png",
+            zip,
+            integration_name=[x[0] for x in HIGHLIGHT_COMBOS],
+            filter_mode=[x[1] for x in HIGHLIGHT_COMBOS],
+            cluster_name=[x[2] for x in HIGHLIGHT_COMBOS]),
+
+
+        # DGE
+        expand("results/DGE/{unique_code}/{unique_code}_DGE_summary.txt", 
+                unique_code=config["DGE_params"].keys())
+
+
+
+                # Remove ambient RNA using CellBender
+def get_filtered_features(wildcards):
+    return config["samples"][wildcards.sample]
+
+# Rule 2: Create Seurat objects from CellBender-cleaned data
+rule load_data:
+    input:
+        raw_data = get_filtered_features
+    output:
+        plot1 = "results/02_LoadData_filtered/{sample}/{sample}_unfiltQC.png",
+        plot2 = "results/02_LoadData_filtered/{sample}/{sample}_unfilt_nFeat_vs_nCount.png",
+        plot3 = "results/02_LoadData_filtered/{sample}/{sample}_unfilt_histcellspergene.png",
+        table = "results/02_LoadData_filtered/{sample}/{sample}_unfiltQC.xlsx",
+        rds = "results/02_LoadData_filtered/{sample}/{sample}_unfilt.rds"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/02_LoadData_filtered/{sample}.log"
+    script:
+        "workflow/02_LoadData_QC.R"
+
+# Rule 2b: Convert NCBI LOC identifiers to human-readable identifiers
+rule LOCgenenames:
+    input:
+        rds = "results/02_LoadData_filtered/{sample}/{sample}_unfilt.rds"
+    output:
+        rds = "results/02b_LOCconverted/{sample}/{sample}_LOCdimred.rds"
+    conda:
+        "envs/RSeurat.yaml"
+    script:
+        "workflow/convertLOCgenenames.R"
+
+# Rule 3: Filter cells & genes based on nFeatures, nCounts, 
+rule filtering:
+    input:
+        rds = "results/02b_LOCconverted/{sample}/{sample}_LOCdimred.rds"
+    params:
+        nFeature_threshold = config["nFeature_threshold"],
+        nCount_threshold = config["nCount_threshold"],
+        min_cells = config["min_cells"]
+    output:
+        plot0 = "results/03_filtered/{sample}/{sample}_nFeat_vs_nCount_thresholds.png",
+        plot1 = "results/03_filtered/{sample}/{sample}_filtQC.png",
+        plot2 = "results/03_filtered/{sample}/{sample}_filt_nFeat_vs_nCount.png",
+        plot3 = "results/03_filtered/{sample}/{sample}_highly_expressed_genes.png",
+        table = "results/03_filtered/{sample}/{sample}_filtQC.xlsx",
+        rds = "results/03_filtered/{sample}/{sample}_filt.rds"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/03_filtered/{sample}.log"
+    script:
+        "workflow/03_Filtering_QC.R"
+
+# Rule 4: Normalize & Scale count data, do PCA
+rule normalize:
+    input:
+        rds = "results/03_filtered/{sample}/{sample}_filt.rds"
+    output:
+        plot0 = "results/04_Normalized/{sample}/{sample}_variable_features.png",
+        plot1 = "results/04_Normalized/{sample}/{sample}_dimplot_PCA.png",
+        plot2 = "results/04_Normalized/{sample}/{sample}_dimplot_PCA_nFeat_nCount.png",
+        plot3 = "results/04_Normalized/{sample}/{sample}_elbowplot_cumu.png",
+        plot4 = "results/04_Normalized/{sample}/{sample}_elbowplot.png",
+        plot5 = "results/04_Normalized/{sample}/{sample}_PCheatmaps.pdf",
+        plot6 = "results/04_Normalized/{sample}/{sample}_VizDimLoadings.pdf",
+        rds = "results/04_Normalized/{sample}/{sample}_normalized.rds"
+    params:
+        variables2regress = "NULL"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/04_Normalized/{sample}.log"
+    script:
+        "workflow/04_Normalization.R"
+
+# Rule 4b: Try different PCs, see marker expression on UMAPs
+rule dimred_diff:
+    input:
+        rds = "results/04_Normalized/{sample}/{sample}_normalized.rds"
+    output:
+        txt1 = "results/04b_diffDimReds/{sample}_different_record_ndims_red.txt",
+        plot1 = "results/04b_diffDimReds/{sample}_different_UMAPS.pdf",
+        plot2 = "results/04b_diffDimReds/{sample}_different_UMAPS_feature_UMAPs.pdf",
+        output_rds = "results/04b_diffDimReds/{sample}_different_dimred.rds"
+    params:
+        ndims = lambda wc: config["ndims"][wc.sample],
+        reduction = "pca",
+        knownmarker_file = "miscellaneous/genes_of_interest_ordered.csv",
+        knownmarker_id_col = "NCBI_gene"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/04b_diffDimReds/{sample}.log"
+    script:
+        "workflow/05_testdiff_DimReduction.R"
+
+# Rule 5: Select PCs, inspect resolution-cluster relationship, do range of clusterings
+rule dimreduction:
+    input:
+        rds = "results/04_Normalized/{sample}/{sample}_normalized.rds"
+    output:
+        txt = "results/05_DimReduction/{sample}/{sample}_record_ndims_red.txt",
+        plot0 = "results/05_DimReduction/{sample}/{sample}_feature_UMAPs.pdf",
+        plot1 = "results/05_DimReduction/{sample}/{sample}_clustering_UMAPs.pdf",
+        plot2 = "results/05_DimReduction/{sample}/{sample}_UMAP.png",
+        table = "results/05_DimReduction/{sample}/{sample}_resolutions_clusters.xlsx",
+        plot3 = "results/05_DimReduction/{sample}/{sample}_resolutions_clusters.png",
+        plot4 = "results/05_DimReduction/{sample}/{sample}_clustree.pdf",
+        rds = "results/05_DimReduction/{sample}/{sample}_dimred.rds"
+    params:
+        ndims = lambda wc: config["chosen_ndims"][wc.sample],
+        reduction = "pca",
+        sample = lambda wc: wc.sample,
+        knownmarker_file = "miscellaneous/genes_of_interest_ordered.csv",
+        knownmarker_id_col = "NCBI_gene"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/05_DimReduction/{sample}.log"
+    script:
+        "workflow/05_DimReduction.R"
+
+# Rule 6: Find cluster markers for some resolutions
+rule clustering:
+    input:
+        rds = "results/05_DimReduction/{sample}/{sample}_dimred.rds"
+    output:
+        plot1 = "results/06_clustering/{sample}/{sample}_{resolution}_UMAP.png",
+        plot2 = "results/06_clustering/{sample}/{sample}_{resolution}_markerdotplot.png",
+        table = "results/06_clustering/{sample}/{sample}_{resolution}_markers.xlsx"
+    threads: 4
+    resources:
+        mem_mb = 10000
+    params:
+        sample = lambda wc: wc.sample,
+        resolution = lambda wc: wc.resolution
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/06_clustering/{sample}_{resolution}.log"
+    script:
+        "workflow/06_Clustering.R"
+
+# Rule 6b: Characterize clusters
+rule cluster_characterization:
+    input:
+        markerlist = "results/06_clustering/{sample}/{sample}_{resolution}_markers.xlsx"
+    output:
+        dotplot = "results/06_clustering/{sample}/cluster_{resolution}/{sample}_cluster{resolution}_newtGOdotplot.pdf",
+        dotplot_combo = "results/06_clustering/{sample}/cluster_{resolution}/{sample}_cluster{resolution}_newtGOdotplotcombo.pdf"
+    resources:
+        mem_mb = 10000
+    params:
+        sample = lambda wc: wc.sample,
+        resolution = lambda wc: wc.resolution
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/06b_cluster_characterization/{sample}_{resolution}.log"
+    script:
+        "workflow/06b_cluster_characterization.R"
+
+
+# Rule 7: Detect doublets using DoubletFinder
+rule doubletdetection:
+    input:
+        rds = "results/05_DimReduction/{sample}/{sample}_dimred.rds"
+    output:
+        plot1 = "results/07_doubletdetection/{sample}/{sample}_doublets_BCmetrics_per_pK.png",
+        plot2 = "results/07_doubletdetection/{sample}/{sample}_doublet_classification_umap.png",
+        plot3 = "results/07_doubletdetection/{sample}/{sample}_doublet_classification_violin.png",
+        plot4 = "results/07_doubletdetection/{sample}/{sample}_doublet_pANN_violin.png",
+        plot5 = "results/07_doubletdetection/{sample}/{sample}_cluster_UMAP.png",
+        plot6 = "results/07_doubletdetection/{sample}/{sample}_doublet_nFeature_nCount.png",
+        table = "results/07_doubletdetection/{sample}/{sample}_doublet_params_predictions.xlsx",
+        plot7 = "results/07_doubletdetection/{sample}/{sample}_doublet_perClusterproportions.png",
+        rds = "results/07_doubletdetection/{sample}/{sample}_doubletsdetected.rds"
+    params:
+        sample = lambda wc: wc.sample,
+        doublet_rate = 0.08,
+        ndims = lambda wc: config["ndims"][wc.sample],
+        chosen_resolution = lambda wc: config["chosen_resolution"][wc.sample]
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/07_doubletdetection/{sample}.log"
+    script:
+        "workflow/07_DoubletDetection.R"
+
+# Rule 7b: Compare Scrublet & DoubletFinder results
+rule doublet_comparison:
+    input:
+        rds_input = "results/07_doubletdetection/{sample}/{sample}_doubletsdetected.rds",
+        csv_input = lambda wc: config["scrublet_csv"][wc.sample]
+    output:
+        plot0 = "results/07b_doublet_comparison/{sample}/{sample}_doublet_predictions_table.png",
+        plot1 = "results/07b_doublet_comparison/{sample}/{sample}_doublet_predictions_umap.png",
+        plot2 = "results/07b_doublet_comparison/{sample}/{sample}_scrublet_scores_umap.png",
+        plot3 = "results/07b_doublet_comparison/{sample}/{sample}_nFeature_nCount.png",
+        plot4 = "results/07b_doublet_comparison/{sample}/{sample}_scrublet_scores_cluster_violin.png",
+        plot5 = "results/07b_doublet_comparison/{sample}/{sample}_doublet_prediction_proportions_cluster.pdf",
+        txt1 = "results/07b_doublet_comparison/{sample}/{sample}_info.txt",
+        rds_output = "results/07b_doublet_comparison/{sample}/{sample}_alldoubletsdetected.rds"
+    params:
+        chosen_resolution = lambda wc: config["chosen_resolution"][wc.sample]
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/07b_doubletcomparison/{sample}.log"
+    script:
+        "workflow/07b_scrublet_comparison.R"
+
+
+integrations = config["integrations"]
+
+# Rule 8: Merge samples with different degrees of doublet removal
+rule merge_samples:
+    input:
+        rds = lambda wc: expand("results/07b_doublet_comparison/{sample}/{sample}_alldoubletsdetected.rds", sample=integrations[wc.integration_name]["samples"])
+    output:
+        txt = "results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}.txt",
+        rds = "results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}.rds",
+        metadata_backup = "results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}_extra_metadata.rds"
+    params:
+        metadata_fields2merge = config["metadata_fields2merge"],
+        filtering_mode = lambda wc: config["filtering"][wc.filter_mode],
+        exclude_categories = lambda wc: config["filtering"][wc.filter_mode].get("exclude_categories"),
+        metadata_field = "scrublet_DropletType"
+    threads: 4
+    resources:
+        mem_mb = 8000
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/08_merge_samples/{integration_name}_{filter_mode}.log"
+    script:
+        "workflow/08_merge_samples.R"
+
+# Rule 9: Normalize & Scale count data, do PCA for merged but UNINTEGRATED samples
+rule normalize_merged_samples:
+    input:
+        rds = "results/08_merge_samples/{integration_name}/merged_{integration_name}_{filter_mode}.rds"
+    output:
+        plot0 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_variable_features.png", 
+        plot1 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimplot_PCA.png",
+        plot2 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimplot_PCA_nFeat_nCount.png",
+        plot3 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_elbowplot_cumu.png",
+        plot4 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_elbowplot.png",
+        plot5 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_PCheatmaps.pdf", 
+        plot6 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_VizDimLoadings.pdf",
+        plot7 = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_cellcycle.png",
+        rds = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_normalized.rds"
+    params:
+        variables2regress = lambda wc: config["variables2regress"][wc.integration_name][wc.filter_mode]
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/09_merged_unintegrated/{integration_name}_{filter_mode}.log"
+    script:
+        "workflow/04_Normalization_copy.R"
+
+# Rule 11: Integration for samples (CCA, RPCA, Harmony)
+rule integrate_samples:
+    input:
+        rds = "results/09_merged_unintegrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_normalized.rds"
+    output:
+        # plot0 = "results/11_integrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_DimHeatmaps.pdf",
+        rds = "results/11_integrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_integrated.rds"
+    params:
+        ndims2check = 50
+    conda:
+        "envs/integration_env.yaml"
+    log:
+        "logs/11_integrated/{integration_name}_{filter_mode}.log"
+    script:
+        "workflow/11_integration.R"
+
+# Rule 11b: Test some dimensions for an integration of choice, see marker expression on UMAPs
+# Note: running several integrations at once can make saveRDS fail.
+rule integrated_dimred_diff:
+    input:
+        rds = "results/11_integrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_integrated.rds"
+    output:
+        txt1 = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_different_record_ndims_red.txt",
+        plot1 = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_different_UMAPS.pdf",
+        plot2 = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_different_UMAPS_feature_UMAPs.pdf",
+        # output_rds = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_different_dimred.rds",
+        plot3 = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_UMAP_DoubletConfidence.pdf",
+        plot4 = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_UMAP_nCount_nFeature.pdf",
+        plot5 = "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_UMAP_CellCycle.pdf",
+        plot6 =  "results/11b_int_diffDimReds/{integration_name}_{filter_mode}/{reduction}_UMAP_bysample.pdf"
+    params:
+        input_seurat = lambda wc: f"{wc.integration_name}_{wc.filter_mode}",
+        ndims = config["ndims_integrated"],
+        reduction = lambda wc: wc.reduction,
+        knownmarker_file = "miscellaneous/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+        join_layers = "TRUE",
+        plot_doublets = "TRUE"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/11b_int_diffDimReds/{integration_name}_{filter_mode}_{reduction}.log"
+    script:
+        "workflow/05_testdiff_DimReduction.R"
+
+# Rule 12: For a chosen dimensionality reduction, try clustering resolutions
+rule integrated_dimred:
+    input:
+        rds = "results/11_integrated/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_integrated.rds"
+    output:
+        txt = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_record_ndims_red.txt",
+        plot0 = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_feature_UMAPs.pdf",
+        plot1 = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_clustering_UMAPs.pdf",
+        plot2 = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_UMAP.png",
+        plot2_1 = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_UMAP_bycondition.png",
+        table = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_resolutions_clusters.xlsx",
+        plot3 = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_resolutions_clusters.png",
+        plot4 = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_clustree.pdf",
+        rds = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimred.rds"
+    params:
+        RunUMAP_input = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["RunUMAP_input"],
+        ndims = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["ndims"],
+        RunUMAP_output = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["RunUMAP_output"],
+        # sample = lambda wc: wc.sample,
+        knownmarker_file = "miscellaneous/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+        cluster_prefix = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["cluster_prefix"]
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/12_integrated_DimReduction/{integration_name}_{filter_mode}.log"
+    script:
+        "workflow/05_DimReduction_copy.R"
+
+
+# Rule 12b: Finding markers for a given clustering resolution
+rule clustermarkers_int:
+    input:
+        rds = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimred.rds"
+    output:
+        table1 = "results/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}_markers.xlsx",
+        plot0 = "results/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}_UMAP.png",
+        plot1 = "results/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}_markers.pdf"
+    params:
+        myreduction = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["RunUMAP_output"],
+        myclusters = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["myclusters"],
+        grouping_var = "orig.ident",
+        calc_conserved_markers = "FALSE" # Set to "TRUE" if you want conserved markers.
+    conda:
+        "envs/markers_env.yaml"
+    log:
+        "logs/12b_clustermarkers_4intdata/{integration_name}_{filter_mode}.log"
+    script:
+        "workflow/12b_clustermarkers_4intdata.R"
+        
+
+# Rule 13: Integration QC for a given clustering resolution
+rule integration_QC:
+    input:
+        rds = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimred.rds"
+    output:
+        plot0 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/dotplot_known_markers.pdf",
+        plot1 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_originalsample.png",
+        plot2 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_clustering.png",
+        plot1_1 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_split_originalsample.png",
+        plot1_2 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_split_originalsample_clusters.png",
+        plot3 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_DoubletConfidence.png",
+        plot4 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_nCount_nFeature.png",
+        table1 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/cells_per_cluster_sample.xlsx",
+        plot5 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/sample_prop_per_cluster.png",
+        plot6 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/doublet_prop_per_cluster.png",
+        plot7 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_cellcycle_score.png",
+        plot8 = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/UMAP_cellcyclephase.png",
+        plotx = "results/13_integrated_clusterQC/{integration_name}/{filter_mode}/barplot_cellnums.png"
+    params:
+        myreduction = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["RunUMAP_output"],
+        myclusters = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["myclusters"],
+        knownmarker_file = "miscellaneous/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+    conda:
+        "envs/integration_env.yaml"
+    log:
+        "logs/13_integrated_clusterQC/{integration_name}_{filter_mode}.log"
+    script:
+        "workflow/10b_integrationQC.R"
+
+# Rule 14: Peelout and subset for a given group of cells
+rule peelout:
+    input:
+        rds = "results/12_integrated_DimReduction/{integration_name}/{filter_mode}/{integration_name}_{filter_mode}_dimred.rds"
+    output:
+        plot1 = "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP.png",
+        txt1 = "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.txt",
+        rds = "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.rds",
+    params:
+        myclusters  = lambda wc: config["integration_params"][wc.integration_name][wc.filter_mode]["myclusters"],
+        clusters2group = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["clusters2peel"]
+    conda:
+        "envs/integration_env.yaml"
+    log:
+        "logs/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.log"
+    script:
+        "workflow/14_peel_out.R"
+
+# Rule 14b: Redo PCA for subset
+rule PCA_peelout:
+    input:
+        rds = "results/14_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.rds"
+    output:
+        plot0 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_variable_features.png", 
+        plot1 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dimplot_PCA.png",
+        plot2 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dimplot_PCA_nFeat_nCount.png",
+        plot3 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_elbowplot_cumu.png",
+        plot4 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_elbowplot.png",
+        plot5 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_PCheatmaps.pdf", 
+        plot6 = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_VizDimLoadings.pdf",
+        rds = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_pca_peelout.rds"
+    params:
+        variables2regress = lambda wc: config["variables2regress"][wc.integration_name][wc.filter_mode],
+        pca_reduction_name = "pca",
+        ndims2check = 50
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}.log"
+    script:
+        "workflow/04_Normalization_peelouts.R"
+
+# Rule 15: integrate peeled out cells
+rule integrate_peelout:
+    input:
+        rds = "results/14b_PCA_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_pca_peelout.rds"
+    output:
+        rds = "results/15_integrated_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_integrated.rds"
+    params:
+        ndims2check = 50
+    conda:
+        "envs/integration_env.yaml"
+    log:
+        "logs/15_integrated_peelout/{integration_name}_{filter_mode}_{cluster_name}.log"
+    script:
+        "workflow/11_integration.R"
+
+# Rule 15b: test different dimreds
+rule peeled_integrated_dimred_diff:
+    input:
+        rds = "results/15_integrated_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_integrated.rds"
+    output:
+        txt1 = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_different_record_ndims_red.txt",
+        plot1 = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_different_UMAPS.pdf",
+        plot2 = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_different_UMAPS_feature_UMAPs.pdf",
+        # output_rds = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_different_dimred.rds"
+        plot3 = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_UMAP_DoubletConfidence.pdf",
+        plot4 = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_UMAP_nCount_nFeature.pdf",
+        plot5 = "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_UMAP_CellCycle.pdf",
+        plot6 =  "results/15b_peeled_int_diffDimReds/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_{reduction}_UMAP_bysample.pdf"
+    params:
+        input_seurat = lambda wc: f"{wc.integration_name}_{wc.cluster_name}",
+        ndims = config["ndims_integrated"],
+        reduction = lambda wc: wc.reduction,
+        knownmarker_file = "miscellaneous/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+        join_layers = "TRUE",
+        plot_doublets = "TRUE"
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/15b_peeled_int_diffDimReds/{integration_name}_{filter_mode}_{cluster_name}_{reduction}.log"
+    script:
+        "workflow/05_testdiff_DimReduction.R"
+
+# Rule 16: test different clustering resolutions 
+rule integrated_dimred_peeled:
+    input:
+        rds = "results/15_integrated_peelout/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_integrated.rds"
+    output:
+        txt = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_record_ndims_red.txt",
+        plot0 = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_feature_UMAPs.pdf",
+        plot1 = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_clustering_UMAPs.pdf",
+        plot2 = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_original.png",
+        plot2_1 = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_bycondition.png",
+        table = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_resolutions_clusters.xlsx",
+        plot3 = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_resolutions_clusters.png",
+        plot4 = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_clustree.pdf",
+        rds = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dimred.rds"
+    params:
+        RunUMAP_input = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["RunUMAP_input"],
+        ndims = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["ndims"],
+        RunUMAP_output = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["RunUMAP_output"],
+        # sample = lambda wc: wc.sample,
+        knownmarker_file = "miscellaneous/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+        cluster_prefix = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["cluster_prefix"]
+    conda:
+        "envs/RSeurat.yaml"
+    log:
+        "logs/16_peeled_integrated_DimRed/{integration_name}_{filter_mode}_{cluster_name}.log"
+    script:
+        "workflow/05_DimReduction_copy.R"
+
+# Rule 16b: find marker genes for a given resolution
+rule clustermarkers_int_peelout:
+    input:
+        rds = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dimred.rds"
+    output:
+        table1 = "results/16b_clustermarkers_4peeledintdata/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_markers.xlsx",
+        plot0 = "results/16b_clustermarkers_4peeledintdata/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP.png",
+        plot1 = "results/16b_clustermarkers_4peeledintdata/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_markers.pdf"
+    params:
+        myreduction = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["RunUMAP_output"],
+        myclusters = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["myclusters"],
+        grouping_var = "orig.ident",
+        calc_conserved_markers = "FALSE" # Set to "TRUE" if you want conserved markers.
+    conda:
+        "envs/markers_env.yaml"
+    log:
+        "logs/16b_clustermarkers_4peeledintdata/{integration_name}_{filter_mode}_{cluster_name}.log"
+    script:
+        "workflow/12b_clustermarkers_4intdata.R"
+
+# Rule 17: Integration QC for a given clustering resolution
+rule peelout_integration_QC:
+    input:
+        rds = "results/16_peeled_integrated_DimRed/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dimred.rds"
+    output:
+        plot0 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_dotplot_known_markers.pdf",
+        plot1 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_originalsample.png",
+        plot2 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_clustering.png",
+        plot1_1 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_split_originalsample.png",
+        plot1_2 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_split_originalsample_clusters.png",
+        plot3 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_DoubletConfidence.png",
+        plot4 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_nCount_nFeature.png",
+        table1 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_cells_per_cluster_sample.xlsx",
+        plot5 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_sample_prop_per_cluster.png",
+        plot6 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_doublet_prop_per_cluster.png",
+        plot7 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_cellcycle_score.png",
+        plot8 = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_UMAP_cellcyclephase.png",
+        plotx = "results/17_peelout_intclusterQC/{integration_name}/{integration_name}_{filter_mode}_{cluster_name}_barplot_cellnums.png"
+    params:
+        myreduction = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["RunUMAP_output"],
+        myclusters = lambda wc: config["peelouts"][wc.integration_name][wc.filter_mode][wc.cluster_name]["myclusters"],
+        knownmarker_file = "miscellaneous/CanonicalMarkersTable.csv",
+        knownmarker_id_col = "NCBI_gene",
+    conda:
+        "envs/integration_env.yaml"
+    log:
+        "logs/17_peelout_integrated_clusterQC/{integration_name}_{filter_mode}_{cluster_name}.log"
+    script:
+        "workflow/10b_integrationQC.R"
+
+
+rule DGE:
+    input:
+        rds = lambda wc: config["DGE_params"][wc.unique_code]["input_rds"]
+    output:
+        outfile = "results/DGE/{unique_code}/{unique_code}_DGE_summary.txt",
+        outplot = "results/DGE/{unique_code}/{unique_code}_DGE_inputobject.png",
+    resources:
+        mem_mb = 10000
+    params:
+        unique_code = lambda wc: wc.unique_code,
+        clustering = lambda wc: config["DGE_params"][wc.unique_code]["clustering"],
+        reduction = lambda wc: config["DGE_params"][wc.unique_code]["reduction"],
+        tst = lambda wc: config["DGE_params"][wc.unique_code]["tst"],
+        ref = lambda wc: config["DGE_params"][wc.unique_code]["ref"],
+        grp = lambda wc: config["DGE_params"][wc.unique_code]["grp"],
+        tst_grp = lambda wc: config["DGE_params"][wc.unique_code]["tst_grp"],
+        ref_grp = lambda wc: config["DGE_params"][wc.unique_code]["ref_grp"],
+        grping = lambda wc: config["DGE_params"][wc.unique_code]["grping"],
+        clusterwise = lambda wc: config["DGE_params"][wc.unique_code]["clusterwise"],
+        ds = lambda wc: config["DGE_params"][wc.unique_code]["ds"],
+        covariates = lambda wc: config["DGE_params"][wc.unique_code]["covariates"],
+        test_use = lambda wc: config["DGE_params"][wc.unique_code]["test_use"],
+        assay = lambda wc: config["DGE_params"][wc.unique_code]["assay"]
+    conda:
+        "envs/integration_env.yaml"
+    log:
+        "logs/DGE/{unique_code}.log"
+    script:
+        "workflow/13_DGE.R"

@@ -1,0 +1,24 @@
+samples:
+    Early_active: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_01/P34662_101/outs/raw_feature_bc_matrix.h5
+    PM_naive: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_01/P34662_102/outs/raw_feature_bc_matrix.h5
+    14dpci: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_02/P34073_101/outs/raw_feature_bc_matrix.h5
+    14dpSham: ../../data/raw/dataNCBI_lighter/E.Eroglu_25_02/P34073_102/outs/raw_feature_bc_matrix.h5
+    # Early_active_V2: ../../data/raw/V2_aligned_data_lighter/V2_aligned_data/P34662_101/outs/raw_feature_bc_matrix.h5
+    # PM_naive_V2: ../../data/raw/V2_aligned_data_lighter/V2_aligned_data/P34662_102/outs/raw_feature_bc_matrix.h5
+    # 14dpci_V2: ../../data/raw/V2_aligned_data_lighter/V2_aligned_data/P34073_101/outs/raw_feature_bc_matrix.h5
+    # 14dpSham_V2: ../../data/raw/V2_aligned_data_lighter/V2_aligned_data/P34073_102/outs/raw_feature_bc_matrix.h5
+    10dpci_veh: ../../data/raw/DDSdownload/10dpci_tester/10dpci_DDSdelivery/files/P36258/01-SC-Analysis/E.Eroglu_25_03/P36258_101/outs/raw_feature_bc_matrix.h5
+    10dpci_ccpe: ../../data/raw/DDSdownload/10dpci_tester/10dpci_DDSdelivery/files/P36258/01-SC-Analysis/E.Eroglu_25_03/P36258_102/outs/raw_feature_bc_matrix.h5
+
+
+learning_rate_cb:
+    Early_active: 0.000025
+    PM_naive: 0.00005
+    14dpci: 0.0001
+    14dpSham: 0.000025
+    # Early_active_V2: 0.00005
+    # PM_naive_V2: 0.0001
+    # 14dpci_V2: 0.0001
+    # 14dpSham_V2: 0.000025
+    10dpci_veh: 0.000025
+    10dpci_ccpe: 0.000025

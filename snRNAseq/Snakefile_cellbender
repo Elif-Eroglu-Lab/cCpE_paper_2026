@@ -1,0 +1,83 @@
+# Specify the basics
+configfile: "config/config.yaml"
+# conda: "envs/global.yaml"
+
+# Target rule
+rule all:
+    input:
+        # Rule run_cellbender
+        expand("results/01_remove_ambient_RNA/{sample}_filtered.h5", sample=config["samples"].keys()),
+        # Rule CBoutput2Seurat
+        expand("results/01b_CellBenderoutput_Seurat/{sample}_filtered_seurat.h5", sample=config["samples"].keys()),
+        # Rule CBoutput2Scrublet
+        expand("results/CB2Scrublet/{sample}_counts_matrix.h5ad", sample=config["samples"].keys()),
+        # Rule run_scrublet
+        expand("results/01d_run_Scrublet/{sample}_scrubbed_counts.h5ad", sample=config["samples"].keys()),
+        expand("results/01d_run_Scrublet/{sample}_scrubbed_metadata.csv", sample=config["samples"].keys()),
+        expand("results/01d_run_Scrublet/{sample}_scrublet_scorehistogram.png", sample=config["samples"].keys()),
+        expand("results/01d_run_Scrublet/{sample}_scrublet_scoreUMAP.png", sample=config["samples"].keys()),
+
+# Remove ambient RNA using CellBender
+def get_cellbender_inputs(wildcards):
+    return config["samples"][wildcards.sample]
+
+rule run_cellbender:
+    input:
+        get_cellbender_inputs
+    output:
+        "results/01_remove_ambient_RNA/{sample}_filtered.h5"
+    conda:
+        "envs/cellbender_manual.yaml"
+    params:
+        learning_rate = lambda wc: config["learning_rate_cb"][wc.sample]
+    log:
+        "logs/01_remove_ambient_RNA/{sample}.log"
+    threads: 8
+    shell:
+        "cellbender remove-background --cuda --input {input} --output {output} --learning-rate {params.learning_rate}"
+
+# Make CellBender objects Seurat compatible
+rule CBoutput2Seurat:
+    input:
+        "results/01_remove_ambient_RNA/{sample}_filtered.h5"
+    output:
+        "results/01b_CellBenderoutput_Seurat/{sample}_filtered_seurat.h5"
+    params:
+        inputfile = "results/01_remove_ambient_RNA/{sample}_filtered.h5:/matrix",
+        outputfile ="results/01b_CellBenderoutput_Seurat/{sample}_filtered_seurat.h5:/matrix"
+    conda:
+        "envs/cellbender_manual.yaml"
+    log:
+        "logs/01b_CellBenderoutput_Seurat/{sample}.log"
+    shell:
+        "ptrepack --complevel 5 {params.inputfile} {params.outputfile}"
+
+# Make CellBender objects Scrublet compatible
+rule CBoutput2Scrublet:
+    input:
+        cb_input = get_cellbender_inputs,
+        cb_output = "results/01_remove_ambient_RNA/{sample}_filtered.h5"
+    output:
+        conversion_output = "results/01c_CellBenderoutput_Scrublet/{sample}_counts_matrix.h5ad"
+    conda:
+        "envs/cellbender_manual.yaml"
+    log:
+        "logs/01c_CellBenderoutput_Python/{sample}.log"
+    script:
+        "workflow/CB2Scrublet.py"
+
+# Run Scrublet itself
+rule run_scrublet:
+    input:
+        input_h5ad = "results/01c_CellBenderoutput_Scrublet/{sample}_counts_matrix.h5ad"
+    output:
+        output_h5ad = "results/01d_run_Scrublet/{sample}_scrubbed_counts.h5ad",
+        output_csv = "results/01d_run_Scrublet/{sample}_scrubbed_metadata.csv",
+        plot1 = "results/01d_run_Scrublet/{sample}_scrublet_scorehistogram.png",
+        plot2 = "results/01d_run_Scrublet/{sample}_scrublet_scoreUMAP.png"
+    conda:
+        "envs/scrublet.yaml"
+    log:
+        "logs/01d_run_Scrublet/{sample}.log"
+    script:
+        "workflow/run_scrublet.py"
