@@ -171,7 +171,19 @@ dev.off()
 markers <- read_xlsx("../results/07_clustermarkers/allsections/allsections_cca_resolution_1.6_markers.xlsx")
 markers$cluster <- factor(markers$cluster, levels = names(selected_cols))
 markers$score <- as.numeric(markers$score)
-markers$score2 <- as.numeric(markers$score2)
+
+# Map back to original identifiers
+identifiers <- read_xlsx("../identifiers/NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250601_HsandMm_shared.xlsx")
+identifiermap <- setNames(identifiers$gene_id, identifiers$genename_Hs_PwNameFormat)
+
+# Make supplementary file for Spatial markers
+colnames(markers)
+markers_supp <- markers %>%
+  dplyr::select(-score2) %>%
+  dplyr::mutate(gene_id = identifiermap[gene]) %>%
+  dplyr::relocate(gene_id, gene,cluster)
+write_xlsx(markers_supp, "../results/figures_spatial/SpatialClusters_markers.xlsx")
+
 
 View(markers)
 
@@ -179,14 +191,55 @@ View(markers)
 genes2plot <- markers %>%
   group_by(cluster) %>%
   arrange(cluster, -score, , -(abs(avg_log2FC))) %>%
-  slice_head(n = 5) %>%
+  slice_head(n = 4) %>%
   pull(gene) %>%
   unique()
   
   # %>%
   # rev() # for vertical plot
 
-label <- "ST_5markers_byscore_and_log2FC_SCALED"
+width <- 0.15 * length(genes2plot) + 7
+height <- 6
+
+label <- "ST_4markers_byscore_and_log2FC_SCALED"
+}
+
+{ # Top markers for BORDER ZONE
+markers <- read_xlsx("../results/07_clustermarkers/allsections/allsections_cca_resolution_1.6_markers.xlsx")
+markers$cluster <- factor(markers$cluster, levels = names(selected_cols))
+markers$score <- as.numeric(markers$score)
+
+# Map back to original identifiers
+identifiers <- read_xlsx("../identifiers/NCBI_aPleWal1.hap1.20221129_genomic_GeneIDtoFeature_20250601_HsandMm_shared.xlsx")
+# identifiermap <- setNames(identifiers$description, identifiers$genename_Hs_PwNameFormat) # full description
+# identifiermap <- setNames(identifiers$genename_Hs, identifiers$genename_Hs_PwNameFormat) # human orthologue
+identifiermap <- setNames(identifiers$gene_id, identifiers$genename_Hs_PwNameFormat) # NCBI symbol
+
+
+View(markers)
+
+# Select markers to plot
+genes2plot <- markers %>%
+  dplyr::filter(cluster == 10) %>%
+  arrange(cluster, -score, , -(abs(avg_log2FC))) %>%
+  slice_head(n = 15) %>%
+  pull(gene) %>%
+  unique() %>%
+  rev() # for vertical plot
+
+width <- 0.15 * length(genes2plot) + 10
+height <- 5
+label <- "BZmarkers_byscore_and_log2FC_description"
+
+width <- 0.15 * length(genes2plot) + 6
+height <- 4
+label <- "BZmarkers_byscore_and_log2FC_genename_Hs"
+
+width <- 0.15 * length(genes2plot) + 6
+height <- 4
+label <- "BZmarkers_byscore_and_log2FC_genename_gene_id"
+
+
 }
 
 p <- DotPlot(obj,
@@ -194,17 +247,15 @@ p <- DotPlot(obj,
         unique(genes2plot),
         group.by = myclusters) +
   scale_colour_viridis(option = "viridis") +
-  scale_x_discrete(labels = function(x) stringr::str_to_sentence(x)) +
+  scale_x_discrete(labels = function(x) stringr::str_to_sentence(identifiermap[x])) +
   RotatedAxis()
   # +
   # coord_flip()
 p
 
 ggsave(paste0("../results/figures_spatial/HORIZONTAL", label, "dotplot.pdf"),
-      #  height = 0.15 * length(genes2plot) + 1.8,
-      #  width = 10,
-       width = 0.15 * length(genes2plot) + 7,
-       height = 8,
+       width = width,
+       height = height,
        units = "in")
 
 ############################ Setup stuff to plot ###########################
