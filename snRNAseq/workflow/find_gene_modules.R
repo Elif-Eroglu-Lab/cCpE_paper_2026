@@ -77,6 +77,7 @@ topgenes_GOexcel_ann <- paste0(mybasename, "top_genes_GO_annotated_by_inika.xlsx
 customGOdotplot <- paste0(mybasename, "customGOdotplot.pdf")
 cnetplot_file <- paste0(mybasename, "GOterms_cnetplot.pdf")
 cnetplot_edges <- paste0(mybasename, "cnetplot_edges.csv")
+cnetplot_edges2 <- paste0(mybasename, "cnetplot_edges2.csv")
 cnetplot_nodes <- paste0(mybasename, "cnetplot_nodes.csv")
 
 aggexp_heatmap <- paste0(mybasename, "topgenesHEATMAP.png")
@@ -317,15 +318,21 @@ identifiers <- read.csv("../../identifiers/NCBI_aPleWal1.hap1.20221129_genomic_G
 colnames(identifiers)
 
 identifiers <- identifiers %>%
-  dplyr::select(c("genename_Hs_PwNameFormat", "genename_Hs"))
+  dplyr::select(c("genename_Hs_PwNameFormat", "gene_id"))
 
-# Get human names for top genes
+# Get original NCBI names for
+identifiermap <- setNames(identifiers$gene_id, identifiers$genename_Hs_PwNameFormat)
+identifiermap[seed_genes]
+
+# Get original NCBI names for top genes
 topgenes_human_df <- identifiers %>%
   dplyr::filter(genename_Hs_PwNameFormat %in% top_genes)
   
 topgenes_human <- topgenes_human_df %>%
-  dplyr::pull(genename_Hs) %>%
+  dplyr::pull(gene_id) %>%
   unique()
+
+topgenes_human
 
 # Run GO term enrichment analysis
 all_GO <- enrichGO(gene = topgenes_human,
@@ -351,19 +358,10 @@ write_xlsx(as.data.frame(all_GO), topgenes_GOexcel)
 saveRDS(all_GO, GOobject)
 # all_GO <- readRDS(GOobject)
 
-#################### Make custom dotplot
-my_palette <- colorRampPalette(viridis(20))(100) %>% rev() # custom viridis colors
-options(enrichplot.colours = my_palette) # set viridis as colorscale
-
-all_GO <- readRDS(GOobject)
-all_GOdf <- read_xlsx(topgenes_GOexcel_ann) %>% dplyr::filter(Keep == "Yes")
-all_GOdf
-dotplot(all_GO, showCategory = all_GOdf$Description, label_format = 40)
-ggsave(customGOdotplot, height = 4, width = 7)
-
-nrow(all_GO@result)
-
 #################### Make cnetplot and export for cytoscape
+# Read in GO object
+all_GO <- readRDS(GOobject)
+
 # Make basic cnetplot to get a vibe check
 p <- cnetplot(all_GO,
          showCategory = nrow(all_GO@result),
@@ -373,23 +371,68 @@ p <- cnetplot(all_GO,
 p
 ggsave(cnetplot_file, p, height = 15, width = 15)
 
-# Save edge info
+# Save basic edge info
 edges <- all_GO@result %>%
   # select(ID, Description, geneID, Count, p.adjust, ) %>%
   separate_rows(geneID, sep = "/") %>%
   rename(source = Description,
          target = geneID) %>%
   mutate(target_display = str_to_sentence(target),
-         log10adj_pval = -log10(p.adjust),
-         termorgene = log10adj_pval/log10adj_pval)
+         log10adj_pval = -log10(p.adjust))
 write.csv(edges, cnetplot_edges, row.names = FALSE, quote = FALSE)
 
-# Save node info
-terms <- data.frame(id = unique(edges$source), type = "Term")
-genes <- data.frame(id = unique(edges$target), type = "Gene")
-nodes <- bind_rows(terms, genes)
-write.csv(nodes, cnetplot_nodes, row.names = FALSE, quote = FALSE)
+################################ ERK targets among regen module
+ERK_targets_compendium <- read.csv("results/testerdump/A Compendium of ERK targets.csv")
+View(ERK_targets_compendium)
 
+# Add known ERK-related genes from literature
+known_ERKrelated <- c(ERK_targets_compendium$Gene.Name, "RASGEF1A")
+
+# Get the ERK related genes present in our list
+topgenes_ERKrelated <- topgenes_human[topgenes_human %in% known_ERKrelated]
+
+# Make df of ERK targets for adding to network
+ERKdf <- data.frame(source = "CUSTOMTERM_ERK-RELATED",
+                    target = topgenes_ERKrelated,
+                    target_display = str_to_sentence(topgenes_ERKrelated))
+
+# ################################# Extra genes of interest
+
+# To make sure they end up in the network
+# Specify genes of interest that are not in the GO term thing
+nonGO_goi <- c("B4GALNT1")
+
+# Sanity check: they are in the regen module, and NOT in the gO terms
+nonGO_goi <- nonGO_goi[nonGO_goi %in% topgenes_human & !nonGO_goi %in% edges$target] %>%
+  str_to_sentence()
+nonGO_goi
+
+# Specify that they're singletons
+nonGO_goi <- data.frame(source = "CUSTOMTERM_SINGLETON",
+                        target_display = nonGO_goi)
+
+################################# Save customized edges data
+edges2 <- bind_rows(edges, ERKdf, nonGO_goi)
+
+write.csv(edges2, cnetplot_edges2, row.names = FALSE, quote = FALSE)
+
+################################# Make node metadata
+GOterm_nodes <- all_GO@result %>%
+  dplyr::select(node = Description) %>%
+  mutate(Category = "GOterm")
+
+ERKnodes <- ERKdf %>%
+  dplyr::select(node = target_display) %>%
+  mutate(Category = "ERK-related")
+
+Extranodes <- nonGO_goi %>%
+  dplyr::select(node = target_display) %>%
+  mutate(Category = "Singleton")
+
+nodes <- bind_rows(GOterm_nodes, ERKnodes, Extranodes)
+View(nodes)
+
+write.csv(nodes, cnetplot_nodes, row.names = FALSE, quote = FALSE)
 ############### Make a heatmap of pseudobulked data
 filename <- aggexp_heatmap
 
@@ -587,20 +630,9 @@ intersect(top_genes, dge_df$gene)
 
 }
 
-################################ Identify which genes are ERK targets
-ERK_targets <- read.csv("results/testerdump/A Compendium of ERK targets.csv")
-
-View(ERK_targets)
-
-ERK_targets %>%
-  dplyr::filter(Gene.Name %in% topgenes_human) %>% #Many rows per gene because different binding sites
-  dplyr::pull(Gene.Name) %>%
-  unique() %>%
-  str_to_sentence()
-
-
 #################################### Make supplementary file
 
+# Fetch Log2FC values for each cluster
 comps <- c("Cluster 06" = "ClusterEPDC_A_veh_cCpE",
            "Cluster 07" = "Cluster09_veh_cCpE",
            "Cluster 08" = "Cluster10_veh_cCpE",
@@ -634,13 +666,24 @@ clustDFs <- dflist %>% purrr::reduce(full_join, by = c("gene", "regenerative gen
 dim(clustDFs)
 View(clustDFs)
 
+# Fetch all genes & correlation values with pattern of interest
 corrdf <- read_xlsx(corrdf2save)
 dim(corrdf)
 
+# Join log2FC info & correlation values
 supp_table <- full_join(corrdf, clustDFs, by = "gene")
 View(supp_table)
 
-write_xlsx(supp_table, supp_file)
+# Add original NCBI identifiers
+supp_table <- supp_table %>%
+  mutate(gene_id = identifiermap[gene]) %>%
+  relocate(gene_id, genename_Hs, gene)
+
+supp_GO <- as.data.frame(all_GO)
+
+write_xlsx(list(RegenModule_genelevel = supp_table,
+                RegenModule_GO = supp_GO),
+           supp_file)
 
 ################### How do the original seed genes look?
 
