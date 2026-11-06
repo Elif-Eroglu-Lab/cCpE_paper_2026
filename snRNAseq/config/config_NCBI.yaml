@@ -1,18 +1,31 @@
-# Aim: config file for samples aligned to Pw NCBI genome
+# README
+# Description: config file for samples aligned to the Pleurodeles waltl NCBI genome. Used by Snakefile_NCBI.
+
+# Note on sample names in the manuscript: Unoperated = PM_naive, Sham = 14dpsham, Veh = 10dpci_veh, cCpE = 10dpci_cCpE
+# Most figures and panels are made outside of the Snakemake pipeline for finer control of aesthetics.
+
+# Aim: To test and run snRNA-seq analysis including sample normalization, dimensionality reduction,
+# clustering, doublet detection methods, merging, integration, subsetting, re-analysis of the subset, etc.
+
+# First the samples are analysed individually, which also allows the usage of DoubletFinder. DoubletFinder & Scrublet were compared.
+# Scrublet-detected doublets were removed, samples were merged and integrated.
+# Epicardial clusters were subsetted for re-analysis.
+
+# Prerequisites: Run config_cellbender.yaml first for ambient RNA removal and Scrublet-based doublet detection.
+# That will produce the files needed here. 
+
+# Author: Inika Prasad
+
 samples:
-    PM_naive: results/01b_CellBenderoutput_Seurat/14dpci_filtered_seurat.h5
-    Early_active: results/01b_CellBenderoutput_Seurat/14dpSham_filtered_seurat.h5
-    14dpci: results/01b_CellBenderoutput_Seurat/Early_active_filtered_seurat.h5
-    14dpsham: results/01b_CellBenderoutput_Seurat/PM_naive_filtered_seurat.h5
+    14dpsham: results/01b_CellBenderoutput_Seurat/14dpSham_filtered_seurat.h5
+    PM_naive: results/01b_CellBenderoutput_Seurat/PM_naive_filtered_seurat.h5
     10dpci_veh: results/01b_CellBenderoutput_Seurat/10dpci_veh_filtered_seurat.h5
     10dpci_cCpE: results/01b_CellBenderoutput_Seurat/10dpci_ccpe_filtered_seurat.h5
 
 # Scrublet file (Rule 7b). Produced with Snakefile_cellbender
 scrublet_csv:
-    PM_naive: "results/01d_run_Scrublet/14dpci_scrubbed_metadata.csv"
-    Early_active: "results/01d_run_Scrublet/14dpSham_scrubbed_metadata.csv"
-    14dpci: "results/01d_run_Scrublet/Early_active_scrubbed_metadata.csv"
-    14dpsham: "results/01d_run_Scrublet/PM_naive_scrubbed_metadata.csv"
+    14dpsham: "results/01d_run_Scrublet/14dpSham_scrubbed_metadata.csv"
+    PM_naive: "results/01d_run_Scrublet/PM_naive_scrubbed_metadata.csv"
     10dpci_veh: "results/01d_run_Scrublet/10dpci_veh_scrubbed_metadata.csv"
     10dpci_cCpE: "results/01d_run_Scrublet/10dpci_ccpe_scrubbed_metadata.csv"
 
@@ -22,67 +35,50 @@ min_cells: 3
 
 ndims:
     PM_naive: 18
-    Early_active: 24
-    14dpci: 16
     14dpsham: 20
     10dpci_veh: 22
     10dpci_cCpE: 21
 
 chosen_ndims:
     PM_naive: 18
-    Early_active: 24
-    14dpci: 16
     14dpsham: 16
     10dpci_veh: 22
     10dpci_cCpE: 21
 
 resolution:
     PM_naive: ["0.7"]
-    Early_active: ["1.4"]
-    14dpci: ["0.7"]
     14dpsham: ["1.4"]
     10dpci_veh: ["0.3"]
     10dpci_cCpE: ["0.3"]
 
 chosen_resolution:
     PM_naive: "resolution_0.7"
-    Early_active: "resolution_1.4"
-    14dpci: "resolution_0.7"
     14dpsham: "resolution_1.4"
     10dpci_veh: "resolution_0.3"
     10dpci_cCpE: "resolution_0.3"
 
+# Specify which samples should be merged. In our case, we will call the dataset 10dpci_ctrl (i.e. 10dpci with controls)
 integrations:
-    # 10dpci:
-    #     samples: ["10dpci_veh", "10dpci_cCpE"]
-    megaminus:
-        samples: ["PM_naive", "Early_active", "14dpci", "14dpsham", "10dpci_veh"]
     10dpci_ctrl:
         samples: ["10dpci_veh", "10dpci_cCpE", "14dpsham", "PM_naive"]
-    miniatlas:
-        samples: ["PM_naive", "14dpsham", "10dpci_veh", "14dpci"]
 
 metadata_fields2merge: ["Doublet_Confidence", "nFeature_RNA", "nCount_RNA", "orig.ident", "scrublet_Scores", "scrublet_DropletType", "barcode"]
 
+# Method of doublet detection. We tested both DoubletFinder and Scrublet, before we settled on Scrublet.
 filter_modes:
     # - stringentDR
     # - conservativeDR
     # - noDR
     - DRscrub
 
+# What category of cells to remove (doublet detectuion)
 filtering:
   DRscrub:
     exclude_categories: ["Doublet"]
 
 # Rule 9: Normalize, Scale, PCA. Define variables to regress
 variables2regress: 
-    # 10dpci:
-    #     DRscrub: "nCount_RNA"
-    megaminus:
-        DRscrub: ["nCount_RNA", "nFeature_RNA", "S.Score", "G2M.Score"]
     10dpci_ctrl:
-        DRscrub: ["nCount_RNA", "nFeature_RNA", "S.Score", "G2M.Score"]
-    miniatlas:
         DRscrub: ["nCount_RNA", "nFeature_RNA", "S.Score", "G2M.Score"]
 
 # Rule 11b: integrated_dimred_diff & Rule 15b: peeled_integrated_dimred_diff
@@ -97,21 +93,8 @@ test_int_method:
 # Test dimensions above and below
 ndims_integrated: "20"
 
+# Integration of samples
 integration_params:
-    # 10dpci:
-    #     DRscrub:
-    #         RunUMAP_input: "pca"
-    #         ndims: 20
-    #         RunUMAP_output: "umap.pca"
-    #         cluster_prefix: "pca"
-    #         myclusters: "pca_resolution_1.2"
-    megaminus:
-        DRscrub:
-            RunUMAP_input: "integrated.harmony"
-            ndims: 35
-            RunUMAP_output: "umap.harmony"
-            cluster_prefix: "harmony"
-            myclusters: "harmony_resolution_0.2"
     10dpci_ctrl:
         DRscrub:
             RunUMAP_input: "integrated.harmony"
@@ -119,634 +102,27 @@ integration_params:
             RunUMAP_output: "umap.harmony"
             cluster_prefix: "harmony"
             myclusters: "harmony_resolution_0.6"
-    miniatlas:
-        DRscrub:
-            RunUMAP_input: "integrated.harmony"
-            ndims: 20
-            RunUMAP_output: "umap.harmony"
-            cluster_prefix: "harmony"
-            myclusters: "harmony_resolution_0.2"
 
-# Rule 14: Peelout certain clusters for iterative reclustering
+# Rule 14: Subset certain clusters for iterative reclustering
 peelouts:
-    megaminus:
+    10dpci_ctrl:
         DRscrub:
-            Epi: 
-                clusters2peel: ["11", "04", "12"]
+            Epi:
+                clusters2peel: ["16", "09", "26"]
                 RunUMAP_input: "integrated.harmony"
-                ndims: 10
+                ndims: 15
                 RunUMAP_output: "umap_peeled.harmony"
                 cluster_prefix: "harmony_peeled"
-                myclusters: "harmony_peeled_resolution_1.6"
-            Muscle: 
-                clusters2peel: ["02", "08"]
-                RunUMAP_input: "integrated.harmony"
-                ndims: 10
-                RunUMAP_output: "umap_peeled.harmony"
-                cluster_prefix: "harmony_peeled"
-                myclusters: "harmony_peeled_resolution_0.8"
-            Stromal: 
-                clusters2peel: ["01", "09", "07", "13", "05"]
-                RunUMAP_input: "integrated.harmony"
-                ndims: 10
-                RunUMAP_output: "umap_peeled.harmony"
-                cluster_prefix: "harmony_peeled"
-                myclusters: "harmony_peeled_resolution_1.8"
-            Devo: 
-                clusters2peel: ["16"]
-                RunUMAP_input: "integrated.harmony"
-                ndims: 10
-                RunUMAP_output: "umap_peeled.harmony"
-                cluster_prefix: "harmony_peeled"
-                myclusters: "harmony_peeled_resolution_1.2"
-    miniatlas:
-            DRscrub:
-                Epi: 
-                    clusters2peel: ["12"]
-                    RunUMAP_input: "integrated.harmony"
-                    ndims: 6
-                    RunUMAP_output: "umap_peeled.harmony"
-                    cluster_prefix: "harmony_peeled"
-                    myclusters: "harmony_peeled_resolution_0.4"
-    # 10dpci:
-    #     DRscrub:
-    #         Epi: 
-    #             clusters2peel: ["19", "16", "21"]
-    #             RunUMAP_input: "pca"
-    #             ndims: 30
-    #             RunUMAP_output: "umap_peeled.pca"
-    #             cluster_prefix: "pca_peeled"
-    #             myclusters: "myres"
-    # 10dpci_ctrl:
-    #     DRscrub:
-    #         Epi:
-    #             clusters2peel: ["16", "09", "26"]
-    #             RunUMAP_input: "integrated.harmony"
-    #             ndims: 15
-    #             RunUMAP_output: "umap_peeled.harmony"
-    #             cluster_prefix: "harmony_peeled"
-    #             myclusters: "harmony_peeled_resolution_1"
+                myclusters: "harmony_peeled_resolution_1"
 
 
 ###########################################################################################
-# Rule DGE
-# Make sure you don't leave behind DGE comparisons that call on objects that aren't being created.
-# ELEPHANT: HORUS HAS MEGAMINUS TEMPORARILY
+# Rule DGE: Differential Gene Expression analysis
+# Each analysis is named with a unique code like ALGOL
 DGE_params:
-# #   HORUS:
-# #     input_rds: "results/12_integrated_DimReduction/megaminus/DRscrub/megaminus_DRscrub_dimred.rds"
-# #     clustering: "harmony_resolution_0.6"
-# #     reduction: "umap.harmony"
-# #     ref: "10dpci_veh_16"
-# #     tst: "10dpci_cCpE_16"
-# #     grp: "condition_cluster"
-# #     ds: null
-# #     covariates: null
-# #     test_use: "MAST"
-# #     assay: "RNA"
-#   ALGEDImod:
-#     input_rds: "results/12_integrated_DimReduction/10dpci_ctrl/DRscrub/10dpci_ctrl_DRscrub_dimred.rds"
-#     clustering: "harmony_resolution_0.6"
-#     reduction: "umap.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "10dpci_cCpE"
-#     ref_grp: "10dpci_veh"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALGENIB:
-#     input_rds: "results/12_integrated_DimReduction/10dpci_ctrl/DRscrub/10dpci_ctrl_DRscrub_dimred.rds"
-#     clustering: "harmony_resolution_0.6"
-#     reduction: "umap.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "10dpci_veh"
-#     ref_grp: "14dpsham"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALKAID:
-#     input_rds: "results/12_integrated_DimReduction/10dpci_ctrl/DRscrub/10dpci_ctrl_DRscrub_dimred.rds"
-#     clustering: "harmony_resolution_0.6"
-#     reduction: "umap.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "14dpsham"
-#     ref_grp: "PM_naive"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALGOL:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "10dpci_cCpE"
-#     ref_grp: "10dpci_veh"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALGORAB:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "10dpci_veh"
-#     ref_grp: "14dpsham"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALKALUROPS:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "14dpsham"
-#     ref_grp: "PM_naive"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALHENA:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "orig.ident"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "04"
-#     ref_grp: "03"
-#     grping: "merged_clusters"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALIFA:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "orig.ident"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "07"
-#     ref_grp: "03"
-#     grping: "merged_clusters"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALIOTH:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "orig.ident"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "04"
-#     ref_grp: "07"
-#     grping: "merged_clusters"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALKAPHRAH:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     ref: "10dpci_veh_04"
-#     tst: "10dpci_veh_13"
-#     grp: "condition_cluster"
-#     ds: "NULL"
-#     tst_grp: null
-#     ref_grp: null
-#     grping: "orig.ident"
-#     clusterwise: "FALSE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALKES:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     tst: "10dpci_veh_04"
-#     ref: "PM_naive_03"
-#     grp: "condition_cluster"
-#     ds: "NULL"
-#     tst_grp: null
-#     ref_grp: null
-#     grping: "orig.ident"
-#     clusterwise: "FALSE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALKIDR:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     tst: "14dpsham_04"
-#     ref: "PM_naive_03"
-#     grp: "condition_cluster"
-#     ds: "NULL"
-#     tst_grp: null
-#     ref_grp: null
-#     grping: "orig.ident"
-#     clusterwise: "FALSE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-#   ALMAAK:
-#     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-#     clustering: "merged_clusters"
-#     reduction: "umap_peeled.harmony"
-#     ref: null
-#     tst: null
-#     grp: null
-#     ds: null
-#     tst_grp: "10dpci_cCpE"
-#     ref_grp: "14dpsham"
-#     grping: "orig.ident"
-#     clusterwise: "TRUE"
-#     covariates: "nFeature_RNA, nCount_RNA"
-#     test_use: "MAST"
-#     assay: "RNA"
-  ALGORABtest:
+  ALGOL:
     input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
     clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "10dpci_veh"
-    ref_grp: "14dpsham"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  ALNAIK:
-    input_rds: "results/16_peeled_integrated_DimRed/miniatlas/miniatlas_DRscrub_Epi_dimred.rds"
-    clustering: "harmony_peeled_resolution_0.4"
-    reduction: "umap_peeled.harmony"
-    tst: "03"
-    ref: "02"
-    grp: "harmony_peeled_resolution_0.4"
-    ds: "NULL"
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  ALNASL:
-    input_rds: "results/16_peeled_integrated_DimRed/miniatlas/miniatlas_DRscrub_Epi_dimred.rds"
-    clustering: "harmony_peeled_resolution_0.4"
-    reduction: "umap_peeled.harmony"
-    tst: "04"
-    ref: "03"
-    grp: "harmony_peeled_resolution_0.4"
-    ds: "NULL"
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  WAZN:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "14dpci"
-    ref_grp: "14dpsham"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  VEGA:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "14dpci"
-    ref_grp: "10dpci_veh"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  WASAT:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "10dpci_veh"
-    ref_grp: "14dpsham"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  TEGMINE:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "Early_active"
-    ref_grp: "14dpsham"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  UNAKALHAI:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "14dpsham"
-    ref_grp: "PM_naive"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  TARAZED:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "Early_active"
-    ref_grp: "PM_naive"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  TEJAT:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "10dpci_veh"
-    ref_grp: "Early_active"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  YED:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "10dpci_veh"
-    ref_grp: "PM_naive"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  YILDUN:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "14dpci"
-    ref_grp: "PM_naive"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  THABIT:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "14dpci"
-    ref_grp: "Early_active"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SYRMA:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: "no_surgery_05"
-    tst: "no_surgery_09"
-    grp: "surgery_cluster"
-    ds: null
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SULAFAT:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: "05"
-    tst: "11"
-    grp: "merged_clusters"
-    ds: null
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SUHAIL:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: "09"
-    tst: "11"
-    grp: "merged_clusters"
-    ds: null
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SUBRA:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: "05"
-    tst: "17"
-    grp: "merged_clusters"
-    ds: null
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SUALOCIN:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: "09"
-    tst: "17"
-    grp: "merged_clusters"
-    ds: null
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  STEROPE:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "merged_clusters"
-    reduction: "umap_peeled.harmony"
-    ref: "11"
-    tst: "17"
-    grp: "merged_clusters"
-    ds: null
-    tst_grp: null
-    ref_grp: null
-    grping: "orig.ident"
-    clusterwise: "FALSE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SPICA:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "harmony_resolution_0.2"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "10dpci_veh"
-    ref_grp: "Early_active"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SITULA:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "harmony_resolution_0.2"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "14dpci"
-    ref_grp: "Early_active"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SIRIUS:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "harmony_resolution_0.2"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "Early_active"
-    ref_grp: "PM_naive"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  SHERATAN:
-    input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "harmony_resolution_0.2"
-    reduction: "umap_peeled.harmony"
-    ref: null
-    tst: null
-    grp: null
-    ds: null
-    tst_grp: "Early_active"
-    ref_grp: "14dpsham"
-    grping: "orig.ident"
-    clusterwise: "TRUE"
-    covariates: "nFeature_RNA, nCount_RNA"
-    test_use: "MAST"
-    assay: "RNA"
-  ANGOOR:
-    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
-    clustering: "harmony_peeled_resolution_1.4"
     reduction: "umap_peeled.harmony"
     ref: null
     tst: null
@@ -759,18 +135,18 @@ DGE_params:
     covariates: "nFeature_RNA, nCount_RNA"
     test_use: "MAST"
     assay: "RNA"
-  # AAMRAS:
-  #   input_rds: "results/16_peeled_integrated_DimRed/megaminus/megaminus_DRscrub_Epi_dimred_CUSTOMRES.rds"
-  #   clustering: "harmony_resolution_0.2"
-  #   reduction: "umap_peeled.harmony"
-  #   ref: null
-  #   tst: null
-  #   grp: null
-  #   ds: null
-  #   tst_grp: "Early_active"
-  #   ref_grp: "14dpsham"
-  #   grping: "orig.ident"
-  #   clusterwise: "TRUE"
-  #   covariates: "nFeature_RNA, nCount_RNA"
-  #   test_use: "MAST"
-  #   assay: "RNA"
+  ALGORAB:
+    input_rds: "results/16_peeled_integrated_DimRed/10dpci_ctrl/10dpci_ctrl_DRscrub_Epi_dimred_CUSTOMRES.rds"
+    clustering: "merged_clusters"
+    reduction: "umap_peeled.harmony"
+    ref: null
+    tst: null
+    grp: null
+    ds: null
+    tst_grp: "10dpci_veh"
+    ref_grp: "14dpsham"
+    grping: "orig.ident"
+    clusterwise: "TRUE"
+    covariates: "nFeature_RNA, nCount_RNA"
+    test_use: "MAST"
+    assay: "RNA"
