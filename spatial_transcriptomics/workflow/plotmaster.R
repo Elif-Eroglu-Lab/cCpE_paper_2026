@@ -1,8 +1,6 @@
 ############################### README ###############################
-# Aim: Takes an excel sheet as input and creates a custom plot grid
-# Input: Excel sheet with columns group.by, group, features
-# Output: custom_plots.pdf where each row is a section,
-# and each column is a grouping (like epicardial spots) or a feature (like CLD6)
+# Aim: Make figures and visualizations for the paper, including
+# clustering, QC plots, Border Zone, dotplots, etc.
 # Author: Inika Prasad, inika.prasad@ki.se
 # Created: 05 September, 2025
 
