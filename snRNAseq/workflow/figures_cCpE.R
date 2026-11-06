@@ -19,7 +19,7 @@ library(pals)
 library(scales)
 library(pheatmap)
 library(clusterProfiler)
-
+library(tidyr)
 
 set.seed(100)
 
@@ -214,24 +214,37 @@ write_xlsx(marker_Supplementary, path = "results/figures/EpiMarkers_supplementar
 markers$cluster %>% unique()
 View(markers)
 
-{ # Extended Data Fig. 8a (Heatmap of 50 markers)
+{ # Extended Data Fig. 8a & Fig. 7d
 markerdf2plot <- markers %>%
-  arrange(cluster, -(abs(avg_log2FC))) %>%
-  group_by(cluster) %>%
+  mutate(Cluster_manuscriptname = map[cluster]) %>%
+  arrange(Cluster_manuscriptname, -(abs(avg_log2FC))) %>%
+  group_by(Cluster_manuscriptname) %>%
   slice_head(n = 50) %>%
   group_by(gene) %>%
   summarise(
-    Cluster = if_else(n_distinct(cluster) > 1, "Mix", first(cluster)),
+    Cluster = if_else(n_distinct(Cluster_manuscriptname) > 1, "Mix", first(Cluster_manuscriptname)),
     .groups = "drop") %>%
-    arrange(factor(Cluster, levels = c(df$Cluster, "Mix")))
+    arrange(factor(Cluster, levels = c(df$Naming_manuscript, "Mix")))
 
 
 View(markerdf2plot)
-library(tidyr)
+
+# Extended Data Fig. 8a (Heatmap of 50 markers)
 genes2plot <- markerdf2plot$gene
 gene_annot <- markerdf2plot %>% column_to_rownames("gene")
-
 label <- "50markers_bylog2FC_SCALE.DATA"
+
+
+# Fig. 7d (Heatmap of 50 markers for mesench EPDCs)
+genes2plot <- markerdf2plot %>%
+  dplyr::filter(Cluster %in% c("06", "07", "08", "09")) %>%
+  dplyr::pull(gene)
+gene_annot <- markerdf2plot %>%
+  dplyr::filter(Cluster %in% c("06", "07", "08", "09")) %>%
+  column_to_rownames("gene")
+
+label <- "50markers_bylog2FC_SCALE.DATA_mesenchEPDCs"
+
 }
 
 {# Extended Data Fig. 6c (Dotplot, all epi clusters)
@@ -277,7 +290,7 @@ genes2plot <- c("CLDN1", "CLDN3-LOC138286503",
 "CLDN11", "CLDN12", "CLDN15", "CLDN16-LOC138302076", "CLDN16-LOC138302104",
 "CLDN16-PW", "CLDN18", "CLDN19", "CLDN20", "CLDN23", "CLDN34")
 
-label <- "claudins"
+label <- "claudins_noregress"
 }
 
 { # Extended Data Fig. 4c, Extended Data Fig. 5a: QC plots
@@ -285,6 +298,31 @@ genes2plot <- c("S.Score", "G2M.Score",
                 "nFeature_RNA", "nCount_RNA",
                 "scrublet_Scores")
 }
+
+{ # Extended Data Fig. 4c, Extended Data Fig. 5a: QC plots
+# Compute Cell Cycle Score for the dataset anew
+# It was previously calculated for the samples individually --> ScaleData() --> PCA
+# But these scores are relative, so they need to be recomputed for the combined samples
+# which is what I'm doing here
+
+# Read in compiled list of cell cycle genes
+cellcycle_genes <- read_xlsx("miscellaneous/cellcycle_genes.xlsx")
+
+# Isolate S-phase and G2/M phase genes
+s.genes <- cellcycle_genes$genename_Hs_PwNameFormat[cellcycle_genes$phase == "S"]
+g2m.genes <- cellcycle_genes$genename_Hs_PwNameFormat[cellcycle_genes$phase == "G2M"]
+
+# Run Cell Cycle scoring. Runs on each layer separately
+obj3 <- CellCycleScoring(obj2, s.features = s.genes, g2m.features = g2m.genes)
+
+# Visualize the Cell Cycle Score across samples
+VlnPlot(obj3, c("S.Score", "G2M.Score"), group.by = "orig.ident", alpha = 0.01)
+VlnPlot(obj2, c("S.Score", "G2M.Score"), group.by = "orig.ident", alpha = 0.01)
+
+genes2plot <- c("S.Score", "G2M.Score")
+
+}
+
 
 { # Extended Data Fig.4d Big UMAP canonical marker dotplot
 genes2plot <- c("TTN", "TNNT2", 
@@ -352,7 +390,7 @@ for (g in genes2plot) {
     scale_colour_viridis(option = "viridis")
 
   # PNG save
-  ggsave(filename = paste0("results/figures/", datasetname, "_", g, ".png"),
+  ggsave(filename = paste0("results/figures/", datasetname, "_recalc", g, ".png"),
          width = 10, height = 10,
          plot = p1)
 }
@@ -381,18 +419,17 @@ my_palette <- colorRampPalette(plasma(20))(100)
 
 # Scale all genes in the Seurat object (the original only scaled Variable Features)
 obj3 <- DietSeurat(obj2, layers = c("counts", "data"))
-obj3 <- ScaleData(obj3, features = rownames(obj3), vars.to.regress = c("nCount_RNA", "nFeature_RNA", "S.Score", "G2M.Score"))
+obj3 <- ScaleData(obj3, features = rownames(obj3))
 
-# genes2plot <- rownames(gene_annot)[gene_annot$Cluster %in% c("EPDC_A", "09", "10", "02")]
+# Get subset of marker genes for CLusters 06-09 (Fig. 7d)
+# genes2plot <- rownames(gene_annot)[gene_annot$Cluster %in% c("06", "07", "08", "09")] # Fig 7d
 
 # Specify order of cells: by clusters and then by condition
 cellsordered <- obj2@meta.data %>%
-  # dplyr::filter(!!sym(clustering) %in% c("03", "07", "04", "13", "14", "15", "12")) %>%
-  # dplyr::filter(!(!!sym(clustering) %in% c("15", "12"))) %>%
-  # dplyr::filter(!!sym(clustering) %in% c("EPDC_A", "02", "09", "10")) %>%
+  dplyr::filter(!!sym(clustering) %in% c("06", "07", "08", "09")) %>% # Fig 7d
   # dplyr::filter(!(orig.ident %in% c("10dpci_cCpE"))) %>%
-  arrange(!!sym(clustering), orig.ident) %>%
-  # arrange(orig.ident, !!sym(clustering)) %>%
+  # arrange(!!sym(clustering), orig.ident) %>% # For extended data heatmap
+  arrange(orig.ident, !!sym(clustering)) %>% # For Fig 7d
   rownames()
 
 # Get data for custom heatmap
@@ -401,6 +438,8 @@ mat_annot <- FetchData(obj3, c("orig.ident", clustering)) # Annotation data
 colnames(mat_annot) <- c("Condition", "Cluster") # Identifying annotation data
 View(mat_annot)
 View(mat)
+
+dim(mat)
 
 # Define colors for annotations
 names(cols)
@@ -419,9 +458,13 @@ mygaps <- which(!duplicated(mat_annot[cellsordered, ]$Cluster, fromLast = TRUE))
 mygaps <- which(!duplicated(mat_annot[cellsordered, ]$Condition, fromLast = TRUE))
 mygaps <- which(!duplicated(mat_annot[cellsordered, ]$Cluster_condition, fromLast = TRUE))
 
-filename <- paste0("results/figures/", datasetname, "CHANGETHIS.pdf")
+# filename <- paste0("results/figures/", datasetname, "CHANGETHIS.pdf")
+filename <- paste0("results/figures/", datasetname, "_", label, "noregress.pdf")
 rownames(mat) <- stringr::str_to_sentence(identifiermap[rownames(mat)])
-rownames(gene_annot) <- stringr::str_to_sentence(rownames(gene_annot))
+rownames(gene_annot) <- stringr::str_to_sentence(identifiermap[rownames(gene_annot)])
+
+intersect(rownames(mat), rownames(gene_annot)) %>% length()
+length(rownames(mat))/length(rownames(gene_annot))
 
 dim(mat)
 rownames(mat)
@@ -432,17 +475,17 @@ pheatmap(mat[, cellsordered],
          cluster_rows = FALSE,
          cluster_cols = FALSE,
          fontsize_row = 10,
-         show_rownames = TRUE,
+         show_rownames = FALSE,
          show_colnames = FALSE,
          angle_col = 45,
          gaps_col = mygaps,
         #  gaps_row = rowgaps,
          treeheight_row = 0,
-        #  annotation_row = gene_annot,
+         annotation_row = gene_annot,
          annotation_col = mat_annot,
          annotation_colors = ann_colors,
-         cellheight = 12,
-         cellwidth = 0.2,
+         cellheight = 2, #12 for Cldn heatmap
+         cellwidth = 0.1, # 0.2 for Cldn heatmap, 0.3 for top marker extended, 
          main = label,
         #  width = 8,
         #  height = 7,
@@ -470,6 +513,8 @@ colnames(df) <- c("Cluster", "Condition", "Frequency")
 df$Cluster <- factor(df$Cluster, levels = names(cols))
 
 df %>% View()
+
+df %>% pivot_wider(names_from = Condition, values_from = Frequency) %>% write_xlsx("results/figures/main_UMAP_clusters.xlsx")
 
 ###########
 # Make barplot (all clusters). Fig, 5f and Extended Data Fig. 5b
